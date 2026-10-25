@@ -1,0 +1,39 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/kawa-platform/kawa-operator
+  # Defaults to the chart's appVersion, so each chart release installs the matching operator. A checkout of
+  # the chart has appVersion 0.0.0: set the tag.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+gateway:
+  # The gateway's admin API, e.g. http://kawa-gateway-gateway.kawa.svc:8080 (required).
+  adminUrl: ""
+  auth:
+    # Existing Secret, key client-secret, with the secret of the gateway's operator client (required).
+    # It is mounted as a file and read on every use.
+    existingSecret: ""
+  tls:
+    # Existing Secret, key ca.crt, with the CA certificate of an https admin API with a private CA.
+    caSecret: ""
+
+# Label selector of the namespaces to serve, e.g. kawa-platform.github.io/gateway=kawa. Empty serves all.
+namespaceSelector: ""
+# How often synced topics are compared with the gateway again.
+resyncInterval: 5m
+
+metrics:
+  # Serve controller-runtime metrics over HTTPS on :8443, behind Kubernetes authentication and RBAC.
+  # A scraper needs the <release>-metrics-reader ClusterRole.
+  enabled: false
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi

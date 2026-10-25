@@ -1,0 +1,817 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: clients.kawa.kawa-platform.github.io
+spec:
+  group: kawa.kawa-platform.github.io
+  names:
+    kind: Client
+    listKind: ClientList
+    plural: clients
+    singular: client
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.client
+      name: Client
+      type: string
+    - jsonPath: .spec.mechanism
+      name: Mechanism
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Client is a SASL client on a kawa gateway, named after the Client: the username a Kafka client
+          authenticates as, and the name Groups list it by.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ClientSpec is the desired SASL client on the operator's gateway. Which groups the client is in is
+              set on the Groups, not here.
+            properties:
+              deletionPolicy:
+                default: Delete
+                description: |-
+                  deletionPolicy: Delete removes the client from the gateway when the Client is deleted (the
+                  default), which also removes it from the gateway groups that list it. Retain leaves it.
+                enum:
+                - Delete
+                - Retain
+                type: string
+              mechanism:
+                description: mechanism the client authenticates with.
+                enum:
+                - PLAIN
+                - SCRAM-SHA-256
+                - SCRAM-SHA-512
+                type: string
+              passwordSecretRef:
+                description: |-
+                  passwordSecretRef is the Secret key holding the client's password. The operator writes the
+                  password to the gateway again when the Secret changes.
+                properties:
+                  key:
+                    description: key in the Secret's data.
+                    minLength: 1
+                    type: string
+                  name:
+                    description: name of the Secret.
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
+            required:
+            - mechanism
+            - passwordSecretRef
+            type: object
+          status:
+            description: ClientStatus is the observed state of a Client.
+            properties:
+              client:
+                description: |-
+                  client is the client name the operator manages on the gateway. It is recorded before the
+                  operator writes the client, so it can be set while the client is still missing on the gateway
+                  after a failed write. The operator only deletes a client it manages.
+                type: string
+              conditions:
+                description: 'conditions: Ready is True when the gateway has the client
+                  as specified.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              passwordVersion:
+                description: |-
+                  passwordVersion identifies the Secret version and key of the password the gateway has. The
+                  gateway never returns a password, so this is how the operator knows when to write it again.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: groups.kawa.kawa-platform.github.io
+spec:
+  group: kawa.kawa-platform.github.io
+  names:
+    kind: Group
+    listKind: GroupList
+    plural: groups
+    singular: group
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.group
+      name: Group
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Group is an RBAC group on a kawa gateway, named after the Group: clients and the roles whose
+          ACLs they inherit.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GroupSpec is the desired RBAC group on the operator's gateway.
+            properties:
+              clients:
+                description: clients are the authenticated client names in the group.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              deletionPolicy:
+                default: Delete
+                description: |-
+                  deletionPolicy: Delete removes the group from the gateway when the Group is deleted (the
+                  default), first taking its clients out of it. Retain leaves it.
+                enum:
+                - Delete
+                - Retain
+                type: string
+              roles:
+                description: |-
+                  roles are the gateway roles whose ACLs the group's clients inherit, by name. A Role manages
+                  the gateway role named after it.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+            type: object
+          status:
+            description: GroupStatus is the observed state of a Group.
+            properties:
+              conditions:
+                description: 'conditions: Ready is True when the gateway has the group
+                  as specified.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              group:
+                description: |-
+                  group is the group name the operator manages on the gateway. It is recorded before the
+                  operator writes the group, so it can be set while the group is still missing on the gateway
+                  after a failed write. The operator only deletes a group it manages.
+                type: string
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: roles.kawa.kawa-platform.github.io
+spec:
+  group: kawa.kawa-platform.github.io
+  names:
+    kind: Role
+    listKind: RoleList
+    plural: roles
+    singular: role
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.role
+      name: Role
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Role is an RBAC role on a kawa gateway, named after the Role: ACLs that gateway groups grant
+          to their clients.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RoleSpec is the desired RBAC role on the operator's gateway.
+            properties:
+              acls:
+                description: acls of the role, as the gateway stores them.
+                items:
+                  description: ACL allows or denies one operation on one resource.
+                  properties:
+                    operation:
+                      description: operation the ACL allows or denies on resource.
+                      enum:
+                      - READ
+                      - WRITE
+                      - CREATE
+                      - DELETE
+                      - ALTER
+                      - DESCRIBE
+                      - ALTER_CONFIGS
+                      - DESCRIBE_CONFIGS
+                      - ALL
+                      type: string
+                    permission:
+                      description: 'permission: ALLOW grants the operation, DENY refuses
+                        it. A matching DENY wins over any ALLOW.'
+                      enum:
+                      - ALLOW
+                      - DENY
+                      type: string
+                    resource:
+                      description: resource the ACL applies to.
+                      properties:
+                        pattern:
+                          description: pattern is the resource name, or with patternType
+                            PREFIXED its prefix.
+                          type: string
+                        patternType:
+                          default: LITERAL
+                          description: |-
+                            patternType: LITERAL matches the name exactly (the default), PREFIXED every name that starts
+                            with pattern.
+                          enum:
+                          - LITERAL
+                          - PREFIXED
+                          type: string
+                        type:
+                          description: type of the resource.
+                          enum:
+                          - TOPIC
+                          - GROUP
+                          - TRANSACTIONAL_ID
+                          - CLUSTER
+                          type: string
+                      required:
+                      - type
+                      type: object
+                      x-kubernetes-validations:
+                      - message: pattern must be unset for CLUSTER and set for every
+                          other type
+                        rule: 'self.type == ''CLUSTER'' ? !has(self.pattern) : has(self.pattern)'
+                      - message: an empty pattern needs patternType PREFIXED
+                        rule: '!has(self.pattern) || size(self.pattern) > 0 || self.patternType
+                          == ''PREFIXED'''
+                  required:
+                  - operation
+                  - permission
+                  - resource
+                  type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+              deletionPolicy:
+                default: Delete
+                description: |-
+                  deletionPolicy: Delete removes the role from the gateway when the Role is deleted (the
+                  default), which also removes it from the gateway groups that list it. Retain leaves it.
+                enum:
+                - Delete
+                - Retain
+                type: string
+            required:
+            - acls
+            type: object
+          status:
+            description: RoleStatus is the observed state of a Role.
+            properties:
+              conditions:
+                description: 'conditions: Ready is True when the gateway has the role
+                  as specified.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              role:
+                description: |-
+                  role is the role name the operator manages on the gateway. It is recorded before the operator
+                  writes the role, so it can be set while the role is still missing on the gateway after a failed
+                  write. The operator only deletes a role it manages.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: virtualtopics.kawa.kawa-platform.github.io
+spec:
+  group: kawa.kawa-platform.github.io
+  names:
+    kind: VirtualTopic
+    listKind: VirtualTopicList
+    plural: virtualtopics
+    shortNames:
+    - vt
+    singular: virtualtopic
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.virtualTopic
+      name: Topic
+      type: string
+    - jsonPath: .spec.physicalTopic
+      name: Physical
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          VirtualTopic is a virtual topic on a kawa gateway: a name clients use that the gateway maps to
+          a physical topic, optionally with a consume filter.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VirtualTopicSpec is the desired virtual topic on the operator's
+              gateway.
+            properties:
+              deletionPolicy:
+                default: Delete
+                description: |-
+                  deletionPolicy: Delete removes the virtual topic from the gateway when the VirtualTopic is
+                  deleted (the default), Retain leaves it. The physical topic is never deleted.
+                enum:
+                - Delete
+                - Retain
+                type: string
+              exposePhysicalTopic:
+                description: |-
+                  exposePhysicalTopic keeps the physical topic listed next to its virtual name in Metadata
+                  responses instead of hiding it.
+                type: boolean
+              filter:
+                description: |-
+                  filter is a server-side consume filter: records that do not match are dropped at the
+                  gateway during Fetch.
+                properties:
+                  expression:
+                    description: expression is the CEL expression of a cel filter;
+                      it must evaluate to a boolean.
+                    minLength: 1
+                    type: string
+                  header:
+                    description: header is the record header a header filter compares.
+                    minLength: 1
+                    type: string
+                  type:
+                    description: type of the filter.
+                    enum:
+                    - headerEquals
+                    - headerContains
+                    - headerStartsWith
+                    - headerMatches
+                    - cel
+                    type: string
+                  value:
+                    description: |-
+                      value is what a header filter compares the header with: equal to, contained in, a prefix
+                      of, or (headerMatches) a regular expression the whole header value must match.
+                    type: string
+                required:
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: cel filters need expression only; header filters need header
+                    and value only
+                  rule: 'self.type == ''cel'' ? has(self.expression) && !has(self.header)
+                    && !has(self.value) : has(self.header) && has(self.value) && !has(self.expression)'
+              physicalTopic:
+                description: physicalTopic is the topic on the Kafka cluster that
+                  backs the virtual topic.
+                maxLength: 249
+                minLength: 1
+                pattern: ^[a-zA-Z0-9._-]+$
+                type: string
+              valueFormat:
+                description: |-
+                  valueFormat is the encoding of record values, so content-based (cel) filters see the
+                  decoded value instead of the raw string.
+                properties:
+                  onDecodeError:
+                    default: skip
+                    description: 'onDecodeError: skip drops the record (the default),
+                      include delivers it, fail fails the fetch.'
+                    enum:
+                    - skip
+                    - include
+                    - fail
+                    type: string
+                  type:
+                    description: |-
+                      type: json, or avro in the schema registry wire format (the schema registry is configured
+                      on the gateway's cluster).
+                    enum:
+                    - json
+                    - avro
+                    type: string
+                required:
+                - type
+                type: object
+              virtualTopic:
+                description: |-
+                  virtualTopic is the virtual topic name clients use. Defaults to the VirtualTopic's
+                  metadata.name; set it for a name Kubernetes does not allow, such as one with upper case
+                  letters or underscores. Immutable.
+                maxLength: 249
+                minLength: 1
+                pattern: ^[a-zA-Z0-9._-]+$
+                type: string
+            required:
+            - physicalTopic
+            type: object
+            x-kubernetes-validations:
+            - message: virtualTopic is immutable
+              rule: has(self.virtualTopic) == has(oldSelf.virtualTopic) && (!has(self.virtualTopic)
+                || self.virtualTopic == oldSelf.virtualTopic)
+          status:
+            description: VirtualTopicStatus is the observed state of a VirtualTopic.
+            properties:
+              conditions:
+                description: 'conditions: Ready is True when the gateway serves the
+                  virtual topic as specified.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              virtualTopic:
+                description: |-
+                  virtualTopic is the virtual topic name the operator manages on the gateway. It is recorded
+                  before the operator writes the topic, so it can be set while the topic is still missing on the
+                  gateway after a failed write. The operator only deletes a topic it manages.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

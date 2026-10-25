@@ -1,0 +1,7 @@
+The kawa operator is installed. Check that it reached the gateway:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "kawa-operator.fullname" . }} | grep -i gateway
+
+Then apply a VirtualTopic, Client, Role or Group and read its Ready condition:
+
+  kubectl get virtualtopics.kawa.kawa-platform.github.io,clients.kawa.kawa-platform.github.io,roles.kawa.kawa-platform.github.io,groups.kawa.kawa-platform.github.io -A

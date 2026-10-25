@@ -1,7 +1,7 @@
 # Release: push a tag like v0.1.0 (or v0.1.0-rc.1 for a pre-release) that points at a commit on main.
-# Verifies the build, publishes ghcr.io/kawa-platform/kawa-operator:<version> for amd64 + arm64 and
-# creates a GitHub Release with generated notes and the CRDs and the manager ClusterRole attached
-# (kawa-charts checks its chart against them).
+# Verifies the build, publishes ghcr.io/kawa-platform/kawa-operator:<version> for amd64 + arm64, the Helm
+# chart oci://ghcr.io/kawa-platform/charts/kawa-operator:<version> (which installs that image), and creates a
+# GitHub Release with generated notes.
 
 name: Release
 
@@ -61,8 +61,33 @@ jobs:
     with:
       version: ${{ needs.verify.outputs.version }}
 
-  github-release:
+  chart:
     needs: [ verify, image ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@v4
+
+      - name: Package and push the chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm lint charts/kawa-operator --values charts/kawa-operator/ci/default-values.yaml
+          helm package charts/kawa-operator --version "$VERSION" --app-version "$VERSION" --destination dist
+          helm push "dist/kawa-operator-$VERSION.tgz" "oci://ghcr.io/$OWNER/charts"
+
+  github-release:
+    needs: [ verify, image, chart ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,15 +100,12 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
-          files: |
-            config/crd/bases/*.yaml
-            config/rbac/role.yaml
           body: |
             ## Install
 
             ```bash
             helm install kawa-operator oci://ghcr.io/kawa-platform/charts/kawa-operator \
-              --version <chart-version> -n kawa -f operator-values.yaml
+              --version ${{ needs.verify.outputs.version }} -n kawa -f operator-values.yaml
             ```
 
             ## Docker image

@@ -1,0 +1,48 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kawa.kawa-platform.github.io
+  resources:
+  - clients
+  - groups
+  - roles
+  - virtualtopics
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kawa.kawa-platform.github.io
+  resources:
+  - clients/finalizers
+  - groups/finalizers
+  - roles/finalizers
+  - virtualtopics/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kawa.kawa-platform.github.io
+  resources:
+  - clients/status
+  - groups/status
+  - roles/status
+  - virtualtopics/status
+  verbs:
+  - get
+  - patch
+  - update

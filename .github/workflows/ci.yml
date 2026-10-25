@@ -27,13 +27,29 @@ jobs:
       - name: Generated code and manifests are up to date
         run: |
           make manifests generate
-          git diff --exit-code -- api config
+          git diff --exit-code -- api config charts
       - name: Lint
         run: |
           make lint-config
           make lint
       - name: Test
         run: make test
+
+  chart:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@v4
+      - name: Lint and render the chart
+        run: |
+          for values in charts/kawa-operator/ci/*-values.yaml; do
+            helm lint charts/kawa-operator --values "$values"
+            helm template ci charts/kawa-operator --namespace ci --values "$values" >/dev/null
+          done
 
   # Pull requests: make sure the Dockerfile still builds (amd64 only, nothing pushed).
   # Pushes to main: publish ghcr.io/kawa-platform/kawa-operator:edge for both architectures.

@@ -1,0 +1,29 @@
+# Whoever may view or edit a namespace may view or manage its kawa resources: these roles join Kubernetes'
+# built-in view, edit and admin roles through aggregation.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kawa-operator.fullname" . }}-view
+  labels:
+    {{- include "kawa-operator.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups: [kawa.kawa-platform.github.io]
+    resources: [virtualtopics, virtualtopics/status, clients, clients/status, roles, roles/status, groups, groups/status]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kawa-operator.fullname" . }}-edit
+  labels:
+    {{- include "kawa-operator.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: [kawa.kawa-platform.github.io]
+    resources: [virtualtopics, clients, roles, groups]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [kawa.kawa-platform.github.io]
+    resources: [virtualtopics/status, clients/status, roles/status, groups/status]
+    verbs: [get]

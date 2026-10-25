@@ -1,0 +1,9 @@
+# Values CI renders the chart with (see .github/workflows/ci.yml).
+gateway:
+  adminUrl: http://kawa-gateway.kawa.svc:8080
+  auth:
+    existingSecret: kawa-operator-client
+  tls:
+    caSecret: kawa-gateway-ca
+namespaceSelector: kawa-platform.github.io/gateway=kawa
+resyncInterval: 10m

@@ -1,0 +1,6 @@
+# The CRDs as the Helm chart installs them (make manifests writes charts/kawa-operator/files/crds.yaml).
+# `keep` leaves the CRDs, and so every custom resource, in the cluster when the chart is uninstalled.
+resources:
+- ../../config/crd
+commonAnnotations:
+  helm.sh/resource-policy: keep

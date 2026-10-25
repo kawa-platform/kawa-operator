@@ -1,0 +1,104 @@
+{{- $adminUrl := required "gateway.adminUrl is required" .Values.gateway.adminUrl }}
+{{- $authSecret := required "gateway.auth.existingSecret is required" .Values.gateway.auth.existingSecret }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kawa-operator.fullname" . }}
+  labels:
+    {{- include "kawa-operator.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kawa-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        {{- include "kawa-operator.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kawa-operator.fullname" . }}
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/manager]
+          args:
+            - --leader-elect
+            - --leader-election-id={{ include "kawa-operator.fullname" . }}
+            - --health-probe-bind-address=:8081
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address=:8443
+            {{- end }}
+            - --gateway-admin-url={{ $adminUrl }}
+            - --gateway-client-id=kawa-operator
+            - --gateway-client-secret-file=/etc/kawa/gateway-auth/client-secret
+            {{- if .Values.gateway.tls.caSecret }}
+            - --gateway-ca-file=/etc/kawa/gateway-tls/ca.crt
+            {{- end }}
+            {{- with .Values.namespaceSelector }}
+            - --namespace-selector={{ . }}
+            {{- end }}
+            - --resync-interval={{ .Values.resyncInterval }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: gateway-auth
+              mountPath: /etc/kawa/gateway-auth
+              readOnly: true
+            {{- if .Values.gateway.tls.caSecret }}
+            - name: gateway-tls
+              mountPath: /etc/kawa/gateway-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: gateway-auth
+          secret:
+            secretName: {{ $authSecret }}
+            items:
+              - key: client-secret
+                path: client-secret
+        {{- if .Values.gateway.tls.caSecret }}
+        - name: gateway-tls
+          secret:
+            secretName: {{ .Values.gateway.tls.caSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
