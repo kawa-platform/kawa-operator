@@ -63,7 +63,8 @@ type managed[Object managedObject, Desired, Listed any] struct {
 	newObject      func() Object
 	newList        func() client.ObjectList
 
-	// desired is the resource obj specifies, or the outcome when it cannot be built.
+	// desired is the admin API form of obj's spec, as the operator writes it, or the outcome when
+	// it cannot be built, e.g. when a Secret it needs is missing.
 	desired func(ctx context.Context, obj Object) (Desired, *outcome)
 	// list reads the gateway's resources by name.
 	list      func(kc *kawa.Client, ctx context.Context) (map[string]Listed, error)

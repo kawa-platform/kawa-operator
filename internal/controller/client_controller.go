@@ -91,6 +91,14 @@ func (r *ClientReconciler) managed() *managed[*kawav1alpha1.Client, desiredClien
 			if unavailable != nil {
 				return desiredClient{}, unavailable
 			}
+			// The cache can lag behind the operator's own status write after it wrote the password,
+			// and a stale version would make it write the password again.
+			if c.Status.PasswordVersion != version {
+				if err := r.refreshPasswordVersion(ctx, c); err != nil {
+					o := failed(ReasonAPIUnavailable, err)
+					return desiredClient{}, &o
+				}
+			}
 			return desiredClient{kawa.AuthClient{Mechanism: string(c.Spec.Mechanism)}, password, version}, nil
 		},
 		list:      (*kawa.Client).ListAuthClients,
@@ -156,6 +164,16 @@ func (r *ClientReconciler) password(ctx context.Context, c *kawav1alpha1.Client)
 		return unavailable(fmt.Sprintf("Secret %q has no key %q", ref.Name, ref.Key))
 	}
 	return string(password), secret.ResourceVersion + "/" + ref.Key, nil
+}
+
+// refreshPasswordVersion reads c's status.passwordVersion from the API server instead of the cache.
+func (r *ClientReconciler) refreshPasswordVersion(ctx context.Context, c *kawav1alpha1.Client) error {
+	var live kawav1alpha1.Client
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(c), &live); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	c.Status.PasswordVersion = live.Status.PasswordVersion
+	return nil
 }
 
 // usingSecret maps a Secret to requests for the Clients in its namespace that take their password
