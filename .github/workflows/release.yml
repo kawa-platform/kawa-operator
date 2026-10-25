@@ -1,0 +1,95 @@
+# Release: push a tag like v0.1.0 (or v0.1.0-rc.1 for a pre-release) that points at a commit on main.
+# Verifies the build, publishes ghcr.io/kawa-platform/kawa-operator:<version> for amd64 + arm64 and
+# creates a GitHub Release with generated notes and the CRDs and the manager ClusterRole attached
+# (kawa-charts checks its chart against them).
+
+name: Release
+
+on:
+  push:
+    tags: [ 'v*.*.*' ]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not a semantic version (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Tag must be on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points at a commit that is not on main"
+            exit 1
+          fi
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: make test
+
+  image:
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
+
+  github-release:
+    needs: [ verify, image ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
+          files: |
+            config/crd/bases/*.yaml
+            config/rbac/role.yaml
+          body: |
+            ## Install
+
+            ```bash
+            helm install kawa-operator oci://ghcr.io/kawa-platform/charts/kawa-operator \
+              --version <chart-version> -n kawa -f operator-values.yaml
+            ```
+
+            ## Docker image
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.verify.outputs.version }}
+            ```
+
+            Multi-arch: `linux/amd64`, `linux/arm64`.

@@ -1,0 +1,7 @@
+## Append samples of your project ##
+resources:
+- kawa_v1alpha1_virtualtopic.yaml
+- kawa_v1alpha1_role.yaml
+- kawa_v1alpha1_group.yaml
+- kawa_v1alpha1_client.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

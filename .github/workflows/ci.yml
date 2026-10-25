@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+      - name: Generated code and manifests are up to date
+        run: |
+          make manifests generate
+          git diff --exit-code -- api config
+      - name: Lint
+        run: |
+          make lint-config
+          make lint
+      - name: Test
+        run: make test
+
+  # Pull requests: make sure the Dockerfile still builds (amd64 only, nothing pushed).
+  # Pushes to main: publish ghcr.io/kawa-platform/kawa-operator:edge for both architectures.
+  image:
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      push: ${{ github.event_name == 'push' }}
+      platforms: ${{ github.event_name == 'push' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}

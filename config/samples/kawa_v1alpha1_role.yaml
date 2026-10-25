@@ -1,0 +1,21 @@
+apiVersion: kawa.kawa-platform.github.io/v1alpha1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: kawa-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: orders-reader
+spec:
+  acls:
+    - resource:
+        type: TOPIC
+        pattern: orders
+        patternType: PREFIXED
+      operation: READ
+      permission: ALLOW
+    - resource:
+        type: TOPIC
+        pattern: orders
+        patternType: PREFIXED
+      operation: DESCRIBE
+      permission: DENY

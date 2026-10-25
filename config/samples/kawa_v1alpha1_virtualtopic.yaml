@@ -1,0 +1,12 @@
+apiVersion: kawa.kawa-platform.github.io/v1alpha1
+kind: VirtualTopic
+metadata:
+  name: orders-eu
+spec:
+  # The name clients use; defaults to metadata.name.
+  virtualTopic: orders.eu
+  physicalTopic: orders-v2
+  filter:
+    type: headerEquals
+    header: region
+    value: eu

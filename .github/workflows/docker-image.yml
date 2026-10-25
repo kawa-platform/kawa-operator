@@ -1,0 +1,78 @@
+# Builds the multi-arch operator image and pushes it to GHCR. Called by ci.yml (edge builds from main)
+# and release.yml (versioned builds from v* tags); tags are derived from the triggering ref.
+
+name: Docker Image
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version stamped into the binary (empty = dev, or edge-<sha> on main)
+        type: string
+        default: ''
+      push:
+        description: Push the image to GHCR (false = build only, e.g. for pull requests)
+        type: boolean
+        default: true
+      platforms:
+        type: string
+        default: linux/amd64,linux/arm64
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+permissions: {}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # v1.2.3 -> 1.2.3, 1.2, 1, latest. Pre-releases (v1.2.3-rc.1) only get their exact version.
+          # No bare `0` tag while on 0.x. Pushes to main -> edge + sha-<short>.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            type=edge,branch=main
+            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=kawa-operator
+            org.opencontainers.image.vendor=kawa-platform
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ inputs.platforms }}
+          build-args: |
+            VERSION=${{ inputs.version != '' && inputs.version || format('edge-{0}', github.sha) }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: ${{ inputs.push && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.push }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
