@@ -289,3 +289,9 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+##@ Release
+
+.PHONY: release
+release: ## Tag v$(VERSION) on origin/main and push it (starts the Release workflow). VERSION=x.y.z[-rc.N]
+	@./scripts/release.sh '$(VERSION)'
