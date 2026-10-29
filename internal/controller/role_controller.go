@@ -35,9 +35,9 @@ type RoleReconciler struct {
 	ResyncInterval time.Duration
 }
 
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=roles,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=roles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=roles/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=roles,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=roles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=roles/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

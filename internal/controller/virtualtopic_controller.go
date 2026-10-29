@@ -37,9 +37,9 @@ type VirtualTopicReconciler struct {
 	ResyncInterval time.Duration
 }
 
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=virtualtopics,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=virtualtopics/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=virtualtopics/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=virtualtopics,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=virtualtopics/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=virtualtopics/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *VirtualTopicReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

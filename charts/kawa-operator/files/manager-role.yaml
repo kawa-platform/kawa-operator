@@ -14,7 +14,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - kawa.kawa-platform.github.io
+  - kawa-platform.github.io
   resources:
   - clients
   - groups
@@ -27,7 +27,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kawa.kawa-platform.github.io
+  - kawa-platform.github.io
   resources:
   - clients/finalizers
   - groups/finalizers
@@ -36,7 +36,7 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - kawa.kawa-platform.github.io
+  - kawa-platform.github.io
   resources:
   - clients/status
   - groups/status

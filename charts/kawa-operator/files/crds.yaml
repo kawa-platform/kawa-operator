@@ -4,9 +4,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
-  name: clients.kawa.kawa-platform.github.io
+  name: clients.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
     kind: Client
     listKind: ClientList
@@ -192,9 +192,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
-  name: groups.kawa.kawa-platform.github.io
+  name: groups.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
     kind: Group
     listKind: GroupList
@@ -357,9 +357,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
-  name: roles.kawa.kawa-platform.github.io
+  name: roles.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
     kind: Role
     listKind: RoleList
@@ -577,9 +577,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
     helm.sh/resource-policy: keep
-  name: virtualtopics.kawa.kawa-platform.github.io
+  name: virtualtopics.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
     kind: VirtualTopic
     listKind: VirtualTopicList
