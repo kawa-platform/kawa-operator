@@ -4,4 +4,4 @@ The kawa operator is installed. Check that it reached the gateway:
 
 Then apply a VirtualTopic, Client, Role or Group and read its Ready condition:
 
-  kubectl get virtualtopics.kawa.kawa-platform.github.io,clients.kawa.kawa-platform.github.io,roles.kawa.kawa-platform.github.io,groups.kawa.kawa-platform.github.io -A
+  kubectl get virtualtopics.kawa-platform.github.io,clients.kawa-platform.github.io,roles.kawa-platform.github.io,groups.kawa-platform.github.io -A

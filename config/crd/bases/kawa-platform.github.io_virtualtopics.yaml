@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: virtualtopics.kawa.kawa-platform.github.io
+  name: virtualtopics.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
     kind: VirtualTopic
     listKind: VirtualTopicList

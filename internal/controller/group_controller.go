@@ -34,9 +34,9 @@ type GroupReconciler struct {
 	ResyncInterval time.Duration
 }
 
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=groups,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=groups/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=groups/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

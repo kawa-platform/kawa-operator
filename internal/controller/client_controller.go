@@ -56,9 +56,9 @@ type ClientReconciler struct {
 	ResyncInterval time.Duration
 }
 
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=clients,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=clients/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kawa.kawa-platform.github.io,resources=clients/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=clients,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=clients/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=clients/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 

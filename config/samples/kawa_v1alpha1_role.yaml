@@ -1,4 +1,4 @@
-apiVersion: kawa.kawa-platform.github.io/v1alpha1
+apiVersion: kawa-platform.github.io/v1alpha1
 kind: Role
 metadata:
   labels:

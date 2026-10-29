@@ -4,22 +4,19 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: clients.kawa.kawa-platform.github.io
+  name: groups.kawa-platform.github.io
 spec:
-  group: kawa.kawa-platform.github.io
+  group: kawa-platform.github.io
   names:
-    kind: Client
-    listKind: ClientList
-    plural: clients
-    singular: client
+    kind: Group
+    listKind: GroupList
+    plural: groups
+    singular: group
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.client
-      name: Client
-      type: string
-    - jsonPath: .spec.mechanism
-      name: Mechanism
+    - jsonPath: .status.group
+      name: Group
       type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
@@ -35,8 +32,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Client is a SASL client on a kawa gateway, named after the Client: the username a Kafka client
-          authenticates as, and the name Groups list it by.
+          Group is an RBAC group on a kawa gateway, named after the Group: clients and the roles whose
+          ACLs they inherit.
         properties:
           apiVersion:
             description: |-
@@ -56,58 +53,37 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              ClientSpec is the desired SASL client on the operator's gateway. Which groups the client is in is
-              set on the Groups, not here.
+            description: GroupSpec is the desired RBAC group on the operator's gateway.
             properties:
+              clients:
+                description: clients are the authenticated client names in the group.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
               deletionPolicy:
                 default: Delete
                 description: |-
-                  deletionPolicy: Delete removes the client from the gateway when the Client is deleted (the
-                  default), which also removes it from the gateway groups that list it. Retain leaves it.
+                  deletionPolicy: Delete removes the group from the gateway when the Group is deleted (the
+                  default), first taking its clients out of it. Retain leaves it.
                 enum:
                 - Delete
                 - Retain
                 type: string
-              mechanism:
-                description: mechanism the client authenticates with.
-                enum:
-                - PLAIN
-                - SCRAM-SHA-256
-                - SCRAM-SHA-512
-                type: string
-              passwordSecretRef:
+              roles:
                 description: |-
-                  passwordSecretRef is the Secret key holding the client's password. The operator writes the
-                  password to the gateway again when the Secret changes.
-                properties:
-                  key:
-                    description: key in the Secret's data.
-                    minLength: 1
-                    type: string
-                  name:
-                    description: name of the Secret.
-                    minLength: 1
-                    type: string
-                required:
-                - key
-                - name
-                type: object
-            required:
-            - mechanism
-            - passwordSecretRef
+                  roles are the gateway roles whose ACLs the group's clients inherit, by name. A Role manages
+                  the gateway role named after it.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
             type: object
           status:
-            description: ClientStatus is the observed state of a Client.
+            description: GroupStatus is the observed state of a Group.
             properties:
-              client:
-                description: |-
-                  client is the client name the operator manages on the gateway. It is recorded before the
-                  operator writes the client, so it can be set while the client is still missing on the gateway
-                  after a failed write. The operator only deletes a client it manages.
-                type: string
               conditions:
-                description: 'conditions: Ready is True when the gateway has the client
+                description: 'conditions: Ready is True when the gateway has the group
                   as specified.'
                 items:
                   description: Condition contains details for one aspect of the current
@@ -167,16 +143,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              group:
+                description: |-
+                  group is the group name the operator manages on the gateway. It is recorded before the
+                  operator writes the group, so it can be set while the group is still missing on the gateway
+                  after a failed write. The operator only deletes a group it manages.
+                type: string
               observedGeneration:
                 description: observedGeneration is the generation the conditions were
                   computed for.
                 format: int64
                 type: integer
-              passwordVersion:
-                description: |-
-                  passwordVersion identifies the Secret version and key of the password the gateway has. The
-                  gateway never returns a password, so this is how the operator knows when to write it again.
-                type: string
             type: object
         required:
         - spec

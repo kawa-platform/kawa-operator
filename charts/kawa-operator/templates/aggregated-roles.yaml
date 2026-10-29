@@ -8,7 +8,7 @@ metadata:
     {{- include "kawa-operator.labels" . | nindent 4 }}
     rbac.authorization.k8s.io/aggregate-to-view: "true"
 rules:
-  - apiGroups: [kawa.kawa-platform.github.io]
+  - apiGroups: [kawa-platform.github.io]
     resources: [virtualtopics, virtualtopics/status, clients, clients/status, roles, roles/status, groups, groups/status]
     verbs: [get, list, watch]
 ---
@@ -21,9 +21,9 @@ metadata:
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
 rules:
-  - apiGroups: [kawa.kawa-platform.github.io]
+  - apiGroups: [kawa-platform.github.io]
     resources: [virtualtopics, clients, roles, groups]
     verbs: [create, delete, get, list, patch, update, watch]
-  - apiGroups: [kawa.kawa-platform.github.io]
+  - apiGroups: [kawa-platform.github.io]
     resources: [virtualtopics/status, clients/status, roles/status, groups/status]
     verbs: [get]
