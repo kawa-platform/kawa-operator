@@ -72,7 +72,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Package and push the chart
         env:
