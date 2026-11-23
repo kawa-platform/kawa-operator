@@ -94,14 +94,34 @@ func desiredVirtualTopic(vt *kawav1alpha1.VirtualTopic) kawa.VirtualTopic {
 			topic.Filter.Value = *f.Value
 		}
 	}
-	if format := vt.Spec.ValueFormat; format != nil {
-		onDecodeError := string(format.OnDecodeError)
-		if onDecodeError == "" {
-			onDecodeError = "skip"
+	topic.ValueFormat = payloadFormat(vt.Spec.ValueFormat)
+	for _, t := range vt.Spec.Transformations {
+		step := kawa.Transformation{
+			Type: string(t.Type), Fields: t.Fields, From: t.From, To: t.To, Field: t.Field,
+			Expression: t.Expression, Format: payloadFormat(t.Format),
 		}
-		topic.ValueFormat = &kawa.PayloadFormat{Type: string(format.Type), OnDecodeError: onDecodeError}
+		if t.Value != nil {
+			step.Value = t.Value.Raw
+		}
+		topic.Transformations = append(topic.Transformations, step)
 	}
 	return topic
+}
+
+// payloadFormat is the admin API form of format, with onDecodeError defaulted to skip as the
+// gateway lists it.
+func payloadFormat(format *kawav1alpha1.PayloadFormat) *kawa.PayloadFormat {
+	if format == nil {
+		return nil
+	}
+	onDecodeError := string(format.OnDecodeError)
+	if onDecodeError == "" {
+		onDecodeError = "skip"
+	}
+	return &kawa.PayloadFormat{
+		Type: string(format.Type), OnDecodeError: onDecodeError,
+		Subject: format.Subject, Version: format.Version, Root: format.Root,
+	}
 }
 
 // matches is whether the gateway already serves desired as listed.
@@ -109,7 +129,8 @@ func matches(listed kawa.ListedVirtualTopic, desired kawa.VirtualTopic) bool {
 	return listed.PhysicalTopic == desired.Topic &&
 		listed.ExposePhysicalTopic == desired.ExposePhysicalTopic &&
 		reflect.DeepEqual(listed.Filter, desired.Filter.View()) &&
-		reflect.DeepEqual(listed.ValueFormat, desired.ValueFormat)
+		reflect.DeepEqual(listed.ValueFormat, desired.ValueFormat) &&
+		kawa.TransformationsEqual(listed.Transformations, desired.Transformations)
 }
 
 // SetupWithManager sets up the controller with the Manager.

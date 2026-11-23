@@ -691,31 +691,186 @@ spec:
                 minLength: 1
                 pattern: ^[a-zA-Z0-9._-]+$
                 type: string
+              transformations:
+                description: |-
+                  transformations are value transformation steps the gateway applies in order to each record
+                  value on fetch, after the filter; keys and headers are never changed. A convert step may only
+                  be the last. The gateway validates the steps (paths, CEL expressions, output formats) and a
+                  refusal is reported as InvalidSpec.
+                items:
+                  description: |-
+                    Transformation is one value transformation step. Fields are addressed by dotted paths
+                    (customer.name); a list on a path applies the step to every element.
+                  properties:
+                    expression:
+                      description: |-
+                        expression is the CEL expression of a cel step, with the key, value, headers and timestamp
+                        bindings; its result replaces the value.
+                      minLength: 1
+                      type: string
+                    field:
+                      description: field is the dotted path a defaultField step sets;
+                        missing parent objects are created.
+                      minLength: 1
+                      type: string
+                    fields:
+                      description: fields are the dotted paths a dropFields step removes;
+                        a path the value does not have is ignored.
+                      items:
+                        minLength: 1
+                        type: string
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    format:
+                      description: format is what a convert step encodes the value
+                        as.
+                      properties:
+                        onDecodeError:
+                          default: skip
+                          description: |-
+                            onDecodeError: skip drops the record (the default), include delivers it as stored (unfiltered,
+                            untransformed), fail fails the fetch.
+                          enum:
+                          - skip
+                          - include
+                          - fail
+                          type: string
+                        root:
+                          description: |-
+                            root is the root element name of xml values. Required when this format is the output of
+                            transformations; when set, decoding refuses another root.
+                          minLength: 1
+                          type: string
+                        subject:
+                          description: |-
+                            subject is the schema registry subject of the schema avro values are encoded with. Required
+                            when this format is the output of transformations (the convert format, else valueFormat).
+                          minLength: 1
+                          type: string
+                        type:
+                          description: |-
+                            type: json, avro in the schema registry wire format (the schema registry is configured
+                            on the gateway's cluster), or xml.
+                          enum:
+                          - json
+                          - avro
+                          - xml
+                          type: string
+                        version:
+                          description: version is the subject version avro values
+                            are encoded with; omitted means the latest.
+                          format: int32
+                          minimum: 1
+                          type: integer
+                      required:
+                      - type
+                      type: object
+                      x-kubernetes-validations:
+                      - message: subject and version are allowed only for avro
+                        rule: self.type == 'avro' || !has(self.subject) && !has(self.version)
+                      - message: version requires subject
+                        rule: '!has(self.version) || has(self.subject)'
+                      - message: root is allowed only for xml
+                        rule: self.type == 'xml' || !has(self.root)
+                    from:
+                      description: from is the dotted path of the field a renameField
+                        step moves.
+                      minLength: 1
+                      type: string
+                    to:
+                      description: to is the dotted path a renameField step moves
+                        the field to.
+                      minLength: 1
+                      type: string
+                    type:
+                      description: |-
+                        type of the step: dropFields removes fields, renameField moves a field, defaultField sets a
+                        field when it is absent or null, cel replaces the value with the result of a CEL expression,
+                        convert encodes the result in another format.
+                      enum:
+                      - dropFields
+                      - renameField
+                      - defaultField
+                      - cel
+                      - convert
+                      type: string
+                    value:
+                      description: |-
+                        value is the default of a defaultField step, any JSON value; omitted (or null, which the API
+                        server drops) means null. Only for defaultField: the gateway refuses it on other steps, which
+                        is reported as InvalidSpec, since CEL cannot check a schemaless field at admission.
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - type
+                  type: object
+                  x-kubernetes-validations:
+                  - message: fields is required for dropFields and allowed only there
+                    rule: 'self.type == ''dropFields'' ? has(self.fields) : !has(self.fields)'
+                  - message: from and to are required for renameField and allowed
+                      only there
+                    rule: 'self.type == ''renameField'' ? has(self.from) && has(self.to)
+                      : !has(self.from) && !has(self.to)'
+                  - message: field is required for defaultField and allowed only there
+                    rule: 'self.type == ''defaultField'' ? has(self.field) : !has(self.field)'
+                  - message: expression is required for cel and allowed only there
+                    rule: 'self.type == ''cel'' ? has(self.expression) : !has(self.expression)'
+                  - message: format is required for convert and allowed only there
+                    rule: 'self.type == ''convert'' ? has(self.format) : !has(self.format)'
+                type: array
+                x-kubernetes-list-type: atomic
               valueFormat:
                 description: |-
-                  valueFormat is the encoding of record values, so content-based (cel) filters see the
-                  decoded value instead of the raw string.
+                  valueFormat is the encoding of record values, so content-based (cel) filters and
+                  transformations see the decoded value instead of the raw string. Required with transformations.
                 properties:
                   onDecodeError:
                     default: skip
-                    description: 'onDecodeError: skip drops the record (the default),
-                      include delivers it, fail fails the fetch.'
+                    description: |-
+                      onDecodeError: skip drops the record (the default), include delivers it as stored (unfiltered,
+                      untransformed), fail fails the fetch.
                     enum:
                     - skip
                     - include
                     - fail
                     type: string
+                  root:
+                    description: |-
+                      root is the root element name of xml values. Required when this format is the output of
+                      transformations; when set, decoding refuses another root.
+                    minLength: 1
+                    type: string
+                  subject:
+                    description: |-
+                      subject is the schema registry subject of the schema avro values are encoded with. Required
+                      when this format is the output of transformations (the convert format, else valueFormat).
+                    minLength: 1
+                    type: string
                   type:
                     description: |-
-                      type: json, or avro in the schema registry wire format (the schema registry is configured
-                      on the gateway's cluster).
+                      type: json, avro in the schema registry wire format (the schema registry is configured
+                      on the gateway's cluster), or xml.
                     enum:
                     - json
                     - avro
+                    - xml
                     type: string
+                  version:
+                    description: version is the subject version avro values are encoded
+                      with; omitted means the latest.
+                    format: int32
+                    minimum: 1
+                    type: integer
                 required:
                 - type
                 type: object
+                x-kubernetes-validations:
+                - message: subject and version are allowed only for avro
+                  rule: self.type == 'avro' || !has(self.subject) && !has(self.version)
+                - message: version requires subject
+                  rule: '!has(self.version) || has(self.subject)'
+                - message: root is allowed only for xml
+                  rule: self.type == 'xml' || !has(self.root)
               virtualTopic:
                 description: |-
                   virtualTopic is the virtual topic name clients use. Defaults to the VirtualTopic's

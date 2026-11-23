@@ -111,6 +111,16 @@ func (g *Gateway) SetVirtual(name string, topic kawa.VirtualTopic) {
 	delete(g.managed, topicKey(name))
 }
 
+// EditVirtual changes the stored virtual topic name with edit, keeping its managed-by marker, as an
+// edit outside the operator that the gateway lets through, e.g. by an administrator.
+func (g *Gateway) EditVirtual(name string, edit func(topic *kawa.VirtualTopic)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	topic := g.virtual[name]
+	edit(&topic)
+	g.virtual[name] = topic
+}
+
 // RemoveVirtual deletes a virtual topic as if it was removed outside the operator.
 func (g *Gateway) RemoveVirtual(name string) {
 	g.mu.Lock()
@@ -259,13 +269,14 @@ func (g *Gateway) list(w http.ResponseWriter, _ *http.Request) {
 			"type": "virtual", "name": name, "partitions": 0, "replicationFactor": 0,
 			"filter": topic.Filter.View(), "physicalTopic": topic.Topic,
 			"exposePhysicalTopic": topic.ExposePhysicalTopic, "valueFormat": topic.ValueFormat,
-			"managedBy": g.marker(topicKey(name)),
+			"transformations": transformationsView(topic.Transformations), "managedBy": g.marker(topicKey(name)),
 		})
 	}
 	for name := range g.physical {
 		listing = append(listing, map[string]any{
 			"type": "physical", "name": name, "partitions": 1, "replicationFactor": 1,
-			"filter": nil, "physicalTopic": nil, "exposePhysicalTopic": nil, "valueFormat": nil, "managedBy": nil,
+			"filter": nil, "physicalTopic": nil, "exposePhysicalTopic": nil, "valueFormat": nil, "transformations": nil,
+			"managedBy": nil,
 		})
 	}
 	writeJSON(w, http.StatusOK, listing)
@@ -279,9 +290,19 @@ func (g *Gateway) put(w http.ResponseWriter, r *http.Request) {
 		Filter              *kawa.Filter        `json:"filter"`
 		ExposePhysicalTopic bool                `json:"exposePhysicalTopic"`
 		ValueFormat         *kawa.PayloadFormat `json:"valueFormat"`
+		// Transformations are kept raw to be parsed strictly, as the gateway does.
+		Transformations []map[string]json.RawMessage `json:"transformations"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid topic body: " + err.Error()})
+		return
+	}
+	steps, msg := parseTransformations(body.Transformations)
+	if msg == "" {
+		msg = invalidTransformations(body.ValueFormat, steps)
+	}
+	if msg != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 		return
 	}
 	g.mu.Lock()
@@ -294,10 +315,126 @@ func (g *Gateway) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.virtual[name] = kawa.VirtualTopic{
-		Topic: body.Topic, Filter: body.Filter, ExposePhysicalTopic: body.ExposePhysicalTopic, ValueFormat: body.ValueFormat,
+		Topic: body.Topic, Filter: body.Filter, ExposePhysicalTopic: body.ExposePhysicalTopic,
+		ValueFormat: normalizedFormat(body.ValueFormat), Transformations: normalizedTransformations(steps),
 	}
 	g.stamp(r, topicKey(name))
 	writeJSON(w, http.StatusOK, body)
+}
+
+// stepKeys are the keys the gateway knows per step type, and formatKeys those of a payload format.
+var (
+	stepKeys = map[string][]string{
+		"dropFields":   {"type", "fields"},
+		"renameField":  {"type", "from", "to"},
+		"defaultField": {"type", "field", "value"},
+		"cel":          {"type", "expression"},
+		"convert":      {"type", "format"},
+	}
+	formatKeys = []string{"type", "onDecodeError", "subject", "version", "root"}
+)
+
+// parseTransformations parses raw steps strictly, as the gateway does, or is the gateway's 400
+// message: unknown keys in a step or a convert's format are refused, and a defaultField step must
+// have a value (null is one).
+func parseTransformations(raw []map[string]json.RawMessage) ([]kawa.Transformation, string) {
+	steps := make([]kawa.Transformation, 0, len(raw))
+	for i, fields := range raw {
+		var kind string
+		_ = json.Unmarshal(fields["type"], &kind)
+		known, ok := stepKeys[kind]
+		if !ok {
+			return nil, fmt.Sprintf("transformations[%d]: unknown type '%s'", i, kind)
+		}
+		prefix := fmt.Sprintf("transformations[%d] (%s): ", i, kind)
+		if key := unknownKey(fields, known); key != "" {
+			return nil, prefix + "unknown property '" + key + "'"
+		}
+		if format, ok := fields["format"]; ok {
+			var formatFields map[string]json.RawMessage
+			_ = json.Unmarshal(format, &formatFields)
+			if key := unknownKey(formatFields, formatKeys); key != "" {
+				return nil, prefix + "unknown property 'format." + key + "'"
+			}
+		}
+		if _, ok := fields["value"]; kind == "defaultField" && !ok {
+			return nil, prefix + "'value' is required"
+		}
+		encoded, _ := json.Marshal(fields)
+		var step kawa.Transformation
+		if err := json.Unmarshal(encoded, &step); err != nil {
+			return nil, prefix + err.Error()
+		}
+		steps = append(steps, step)
+	}
+	return steps, ""
+}
+
+// unknownKey is the first key of fields, in sorted order, that is not known, or "".
+func unknownKey(fields map[string]json.RawMessage, known []string) string {
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if !slices.Contains(known, key) {
+			return key
+		}
+	}
+	return ""
+}
+
+// invalidTransformations is the gateway's 400 message for steps it refuses, or "": steps need a
+// value format, and convert may only be the last step.
+func invalidTransformations(valueFormat *kawa.PayloadFormat, steps []kawa.Transformation) string {
+	if len(steps) > 0 && valueFormat == nil {
+		return "transformations require a 'valueFormat' to decode the record value"
+	}
+	for i, step := range steps {
+		if step.Type == "convert" && i != len(steps)-1 {
+			return fmt.Sprintf("transformations[%d] (convert): convert may only be the last step", i)
+		}
+	}
+	return ""
+}
+
+// normalizedFormat is format as the gateway stores it: onDecodeError defaults to skip.
+func normalizedFormat(format *kawa.PayloadFormat) *kawa.PayloadFormat {
+	if format == nil || format.OnDecodeError != "" {
+		return format
+	}
+	normalized := *format
+	normalized.OnDecodeError = "skip"
+	return &normalized
+}
+
+// normalizedTransformations is steps as the gateway stores them: convert formats normalized, and
+// defaultField values re-encoded, so they come back as equal JSON but not the same bytes.
+func normalizedTransformations(steps []kawa.Transformation) []kawa.Transformation {
+	if len(steps) == 0 {
+		return nil
+	}
+	normalized := make([]kawa.Transformation, 0, len(steps))
+	for _, step := range steps {
+		step.Format = normalizedFormat(step.Format)
+		if len(step.Value) > 0 {
+			var value any
+			if err := json.Unmarshal(step.Value, &value); err == nil {
+				step.Value, _ = json.MarshalIndent(value, "", "  ")
+			}
+		}
+		normalized = append(normalized, step)
+	}
+	return normalized
+}
+
+// transformationsView is how GET /topics lists a virtual topic's steps: [] when there are none.
+func transformationsView(steps []kawa.Transformation) []kawa.Transformation {
+	if steps == nil {
+		return []kawa.Transformation{}
+	}
+	return steps
 }
 
 func (g *Gateway) delete(w http.ResponseWriter, r *http.Request) {

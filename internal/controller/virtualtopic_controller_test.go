@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -385,6 +388,145 @@ var _ = Describe("VirtualTopic controller", func() {
 		Consistently(ordersPhysicalTopic(gateway), 2*testResyncInterval, poll).Should(Equal("orders-a"))
 	})
 
+	It("serves the transformations of the spec and reports it synced", func() {
+		// given
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+		topic, _ := gateway.Virtual("orders")
+		Expect(topic.ValueFormat).To(Equal(&kawa.PayloadFormat{Type: "avro", OnDecodeError: "skip"}))
+		Expect(kawa.TransformationsEqual(topic.Transformations, []kawa.Transformation{
+			{Type: "dropFields", Fields: []string{"internal_risk_score"}},
+			{Type: "renameField", From: "order_id", To: "id"},
+			{Type: "defaultField", Field: "quantity", Value: json.RawMessage(`{"amount": 1, "unit": "piece"}`)},
+			{Type: "convert", Format: &kawa.PayloadFormat{Type: "json", OnDecodeError: "skip"}},
+		})).To(BeTrue(), "the gateway holds the steps %+v", topic.Transformations)
+	})
+
+	It("restores transformations changed outside the operator", func() {
+		// given
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+
+		// when: someone drops a step on the gateway
+		gateway.EditVirtual("orders", func(topic *kawa.VirtualTopic) {
+			topic.Transformations = topic.Transformations[1:]
+		})
+
+		// then
+		Eventually(func() int {
+			topic, _ := gateway.Virtual("orders")
+			return len(topic.Transformations)
+		}, eventually, poll).Should(Equal(4), "the dropped step was not restored")
+	})
+
+	It("does not rewrite transformations that are already in sync", func() {
+		// given: a convert without onDecodeError and a numeric default, which the gateway lists
+		// normalized and re-encoded
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+
+		// when: several resyncs pass
+		time.Sleep(3 * testResyncInterval)
+
+		// then
+		Expect(gateway.Writes("orders")).To(Equal(1), "in-sync transformations were written again on resync")
+	})
+
+	It("clears the transformations removed from the spec", func() {
+		// given
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+
+		// when
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(vt), vt)).To(Succeed())
+		vt.Spec.Transformations = nil
+		Expect(k8sClient.Update(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(func() []kawa.Transformation {
+			topic, _ := gateway.Virtual("orders")
+			return topic.Transformations
+		}, eventually, poll).Should(BeEmpty())
+	})
+
+	It("sends a defaultField without value, or with value null, as null", func() {
+		// given: one step leaving value out and one setting it to null, written as unstructured so
+		// that the null reaches the API server
+		gateway := newGateway()
+		vt := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": kawav1alpha1.GroupVersion.String(), "kind": "VirtualTopic",
+			"metadata": map[string]any{"namespace": ns, "name": "orders"},
+			"spec": map[string]any{
+				"physicalTopic": "orders-v2",
+				"valueFormat":   map[string]any{"type": "json"},
+				"transformations": []any{
+					map[string]any{"type": "defaultField", "field": "currency"},
+					map[string]any{"type": "defaultField", "field": "note", "value": nil},
+				},
+			},
+		}}
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		typed := &kawav1alpha1.VirtualTopic{ObjectMeta: v1.ObjectMeta{Namespace: ns, Name: "orders"}}
+		Eventually(readyReason(typed), eventually, poll).Should(Equal(ReasonSynced))
+		topic, _ := gateway.Virtual("orders")
+		Expect(topic.Transformations).To(HaveLen(2))
+		for _, step := range topic.Transformations {
+			Expect(string(step.Value)).To(Equal("null"), "the step %+v was not sent with value null", step)
+		}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(vt), vt)).To(Succeed())
+		stored := vt.Object["spec"].(map[string]any)["transformations"].([]any)[1].(map[string]any)
+		Expect(stored).NotTo(HaveKey("value"), "the API server kept the explicit null")
+		Consistently(func() int { return gateway.Writes("orders") }, 3*testResyncInterval, poll).Should(Equal(1),
+			"a null default was written again on resync")
+	})
+
+	It("reports a value on a step other than defaultField as an invalid spec", func() {
+		// given: CEL rules cannot check the schemaless value, so the gateway refuses it
+		newGateway()
+		vt := transformedOrders(ns)
+		vt.Spec.Transformations[1].Value = &apiextensionsv1.JSON{Raw: []byte(`1`)}
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonInvalidSpec))
+		Expect(readyMessage(vt)).To(ContainSubstring("transformations[1] (renameField): unknown property 'value'"))
+	})
+
+	It("reports transformations the gateway refuses as an invalid spec", func() {
+		// given: a convert that is not the last step, which only the gateway checks
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		last := len(vt.Spec.Transformations) - 1
+		vt.Spec.Transformations[0], vt.Spec.Transformations[last] = vt.Spec.Transformations[last], vt.Spec.Transformations[0]
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonInvalidSpec))
+		Expect(readyMessage(vt)).To(ContainSubstring("transformations[0] (convert)"))
+		_, exists := gateway.Virtual("orders")
+		Expect(exists).To(BeFalse())
+	})
+
 	It("rejects an invalid VirtualTopic at admission", func() {
 		celWithoutExpression := &kawav1alpha1.VirtualTopic{
 			ObjectMeta: v1.ObjectMeta{Namespace: ns, Name: "a"},
@@ -405,6 +547,23 @@ var _ = Describe("VirtualTopic controller", func() {
 			Spec:       kawav1alpha1.VirtualTopicSpec{PhysicalTopic: "orders v2"},
 		}
 		Expect(invalid(badPhysicalName)).To(ContainSubstring("spec.physicalTopic"))
+
+		dropNothing := transformedOrders(ns)
+		dropNothing.Name = "d"
+		dropNothing.Spec.Transformations = []kawav1alpha1.Transformation{{Type: kawav1alpha1.TransformationDropFields, Fields: []string{}}}
+		Expect(invalid(dropNothing)).To(ContainSubstring("fields is required for dropFields"))
+
+		renameWithFields := transformedOrders(ns)
+		renameWithFields.Name = "e"
+		renameWithFields.Spec.Transformations = []kawav1alpha1.Transformation{
+			{Type: kawav1alpha1.TransformationRenameField, From: "a", To: "b", Fields: []string{"c"}},
+		}
+		Expect(invalid(renameWithFields)).To(ContainSubstring("allowed only there"))
+
+		jsonWithRoot := transformedOrders(ns)
+		jsonWithRoot.Name = "f"
+		jsonWithRoot.Spec.ValueFormat = &kawav1alpha1.PayloadFormat{Type: "json", Root: "order"}
+		Expect(invalid(jsonWithRoot)).To(ContainSubstring("root is allowed only for xml"))
 	})
 
 	It("does not allow renaming the virtual topic", func() {
@@ -427,3 +586,20 @@ var _ = Describe("VirtualTopic controller", func() {
 		}, eventually, poll).Should(ContainSubstring("virtualTopic is immutable"))
 	})
 })
+
+// transformedOrders is a VirtualTopic "orders" turning Avro values into JSON, with a numeric
+// default and a convert step without onDecodeError.
+func transformedOrders(namespace string) *kawav1alpha1.VirtualTopic {
+	vt := &kawav1alpha1.VirtualTopic{
+		ObjectMeta: v1.ObjectMeta{Namespace: namespace, Name: "orders"},
+		Spec:       kawav1alpha1.VirtualTopicSpec{PhysicalTopic: "orders-v2"},
+	}
+	vt.Spec.ValueFormat = &kawav1alpha1.PayloadFormat{Type: "avro"}
+	vt.Spec.Transformations = []kawav1alpha1.Transformation{
+		{Type: kawav1alpha1.TransformationDropFields, Fields: []string{"internal_risk_score"}},
+		{Type: kawav1alpha1.TransformationRenameField, From: "order_id", To: "id"},
+		{Type: kawav1alpha1.TransformationDefaultField, Field: "quantity", Value: &apiextensionsv1.JSON{Raw: []byte(`{"amount":1.0,"unit":"piece"}`)}},
+		{Type: kawav1alpha1.TransformationConvert, Format: &kawav1alpha1.PayloadFormat{Type: "json"}},
+	}
+	return vt
+}
