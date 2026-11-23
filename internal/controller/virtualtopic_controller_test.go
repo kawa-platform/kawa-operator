@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -442,6 +443,53 @@ var _ = Describe("VirtualTopic controller", func() {
 		Expect(gateway.Writes("orders")).To(Equal(1), "in-sync transformations were written again on resync")
 	})
 
+	It("restores a large integer default changed outside the operator", func() {
+		// given: a default above 2^53, where a float64 cannot tell it from its neighbour
+		gateway := newGateway()
+		vt := defaultedOrders(ns, `9007199254740993`)
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+		Expect(storedDefault(gateway)()).To(Equal("9007199254740993"))
+
+		// when: someone changes it on the gateway to the neighbouring integer
+		gateway.EditVirtual("orders", func(topic *kawa.VirtualTopic) {
+			topic.Transformations[0].Value = json.RawMessage(`9007199254740992`)
+		})
+
+		// then
+		Eventually(storedDefault(gateway), eventually, poll).Should(Equal("9007199254740993"),
+			"the changed large integer default was not restored")
+		Consistently(func() int { return gateway.Writes("orders") }, 3*testResyncInterval, poll).Should(Equal(2),
+			"the restored large integer default was written again on resync")
+	})
+
+	DescribeTable("does not rewrite a default that is the same number in another notation",
+		func(spec, onGateway string) {
+			// given
+			gateway := newGateway()
+			vt := defaultedOrders(ns, spec)
+			Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+			Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+
+			// when: the gateway holds the default in another notation
+			gateway.EditVirtual("orders", func(topic *kawa.VirtualTopic) {
+				if onGateway == "" {
+					topic.Transformations[0].Value = nil
+				} else {
+					topic.Transformations[0].Value = json.RawMessage(onGateway)
+				}
+			})
+
+			// then
+			Consistently(func() int { return gateway.Writes("orders") }, 3*testResyncInterval, poll).Should(Equal(1),
+				"an unchanged default was rewritten")
+		},
+		Entry("1 and 1.0", `1`, `1.0`),
+		Entry("100 and 1e2", `100`, `1e2`),
+		Entry("a large integer and the same integer as a float", `9007199254740993`, `9007199254740993.0`),
+		Entry("null and a missing value", ``, ``),
+	)
+
 	It("clears the transformations removed from the spec", func() {
 		// given
 		gateway := newGateway()
@@ -510,23 +558,6 @@ var _ = Describe("VirtualTopic controller", func() {
 		Expect(readyMessage(vt)).To(ContainSubstring("transformations[1] (renameField): unknown property 'value'"))
 	})
 
-	It("reports transformations the gateway refuses as an invalid spec", func() {
-		// given: a convert that is not the last step, which only the gateway checks
-		gateway := newGateway()
-		vt := transformedOrders(ns)
-		last := len(vt.Spec.Transformations) - 1
-		vt.Spec.Transformations[0], vt.Spec.Transformations[last] = vt.Spec.Transformations[last], vt.Spec.Transformations[0]
-
-		// when
-		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
-
-		// then
-		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonInvalidSpec))
-		Expect(readyMessage(vt)).To(ContainSubstring("transformations[0] (convert)"))
-		_, exists := gateway.Virtual("orders")
-		Expect(exists).To(BeFalse())
-	})
-
 	It("rejects an invalid VirtualTopic at admission", func() {
 		celWithoutExpression := &kawav1alpha1.VirtualTopic{
 			ObjectMeta: v1.ObjectMeta{Namespace: ns, Name: "a"},
@@ -586,6 +617,34 @@ var _ = Describe("VirtualTopic controller", func() {
 		}, eventually, poll).Should(ContainSubstring("virtualTopic is immutable"))
 	})
 })
+
+// defaultedOrders is a VirtualTopic "orders" of JSON values with one defaultField step defaulting
+// "quantity" to value, a JSON literal, or leaving value out when it is "".
+func defaultedOrders(namespace, value string) *kawav1alpha1.VirtualTopic {
+	vt := &kawav1alpha1.VirtualTopic{
+		ObjectMeta: v1.ObjectMeta{Namespace: namespace, Name: "orders"},
+		Spec:       kawav1alpha1.VirtualTopicSpec{PhysicalTopic: "orders-v2"},
+	}
+	vt.Spec.ValueFormat = &kawav1alpha1.PayloadFormat{Type: "json"}
+	step := kawav1alpha1.Transformation{Type: kawav1alpha1.TransformationDefaultField, Field: "quantity"}
+	if value != "" {
+		step.Value = &apiextensionsv1.JSON{Raw: []byte(value)}
+	}
+	vt.Spec.Transformations = []kawav1alpha1.Transformation{step}
+	return vt
+}
+
+// storedDefault is the value of the first step of the gateway's virtual topic "orders", as the
+// exact JSON number or literal it holds, or "" when there is none.
+func storedDefault(gateway *kawatest.Gateway) func() string {
+	return func() string {
+		topic, _ := gateway.Virtual("orders")
+		if len(topic.Transformations) == 0 {
+			return ""
+		}
+		return strings.TrimSpace(string(topic.Transformations[0].Value))
+	}
+}
 
 // transformedOrders is a VirtualTopic "orders" turning Avro values into JSON, with a numeric
 // default and a convert step without onDecodeError.

@@ -403,6 +403,8 @@ func TestComparesTransformationsByMeaning(t *testing.T) {
 	equal := map[string][2][]kawa.Transformation{
 		"absent and empty lists":     {nil, {}},
 		"an integer and a float":     {defaultTo(`1`), defaultTo(`1.0`)},
+		"an integer and exponent":    {defaultTo(`100`), defaultTo(`1e2`)},
+		"equal integers above 2^53":  {defaultTo(`9007199254740993`), defaultTo(`9007199254740993.0`)},
 		"objects spaced and ordered": {defaultTo(`{"a":1,"b":[true,null]}`), defaultTo(`{ "b": [true, null], "a": 1 }`)},
 		"a missing value and null":   {defaultTo(""), defaultTo(`null`)},
 		"the same steps":             {everyStep, everyStep},
@@ -416,6 +418,8 @@ func TestComparesTransformationsByMeaning(t *testing.T) {
 	otherFormat[4] = kawa.Transformation{Type: "convert", Format: &kawa.PayloadFormat{Type: "avro", OnDecodeError: "fail", Subject: "orders-value"}}
 	unequal := map[string][2][]kawa.Transformation{
 		"different numbers":          {defaultTo(`1`), defaultTo(`2`)},
+		"integers apart above 2^53":  {defaultTo(`9007199254740993`), defaultTo(`9007199254740992`)},
+		"nested integers above 2^53": {defaultTo(`{"n":9007199254740993}`), defaultTo(`{"n":9007199254740992}`)},
 		"a number and a string":      {defaultTo(`1`), defaultTo(`"1"`)},
 		"a missing step":             {everyStep, everyStep[:4]},
 		"a different convert format": {everyStep, otherFormat},

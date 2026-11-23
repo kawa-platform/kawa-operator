@@ -6,6 +6,7 @@
 package kawatest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -419,8 +420,11 @@ func normalizedTransformations(steps []kawa.Transformation) []kawa.Transformatio
 	for _, step := range steps {
 		step.Format = normalizedFormat(step.Format)
 		if len(step.Value) > 0 {
+			// UseNumber keeps integers above 2^53 exact, as the gateway does.
 			var value any
-			if err := json.Unmarshal(step.Value, &value); err == nil {
+			decoder := json.NewDecoder(bytes.NewReader(step.Value))
+			decoder.UseNumber()
+			if err := decoder.Decode(&value); err == nil {
 				step.Value, _ = json.MarshalIndent(value, "", "  ")
 			}
 		}

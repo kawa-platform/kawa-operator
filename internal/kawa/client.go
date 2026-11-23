@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -84,16 +85,68 @@ func TransformationsEqual(a, b []Transformation) bool {
 	})
 }
 
-// jsonEqual is whether a and b are the same JSON value; empty is null.
+// jsonEqual is whether a and b are the same JSON value; empty is null. Numbers are compared
+// exactly by value, so 1 equals 1.0 and 1e2, and integers beyond 2^53 keep every digit.
 func jsonEqual(a, b json.RawMessage) bool {
-	var x, y any
-	if len(a) > 0 && json.Unmarshal(a, &x) != nil {
+	x, ok := decodeJSON(a)
+	if !ok {
 		return false
 	}
-	if len(b) > 0 && json.Unmarshal(b, &y) != nil {
+	y, ok := decodeJSON(b)
+	if !ok {
 		return false
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// jsonNumber is a JSON number in canonical form (big.Rat.RatString), so equal numbers compare equal
+// and never equal a string.
+type jsonNumber string
+
+// decodeJSON decodes raw (empty is null) with numbers as jsonNumber; ok is false for invalid JSON.
+func decodeJSON(raw json.RawMessage) (any, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		return nil, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false
+	}
+	return canonicalNumbers(v)
+}
+
+// canonicalNumbers replaces every json.Number in v with its jsonNumber.
+func canonicalNumbers(v any) (any, bool) {
+	switch v := v.(type) {
+	case json.Number:
+		r, ok := new(big.Rat).SetString(string(v))
+		if !ok {
+			return nil, false
+		}
+		return jsonNumber(r.RatString()), true
+	case []any:
+		for i, e := range v {
+			c, ok := canonicalNumbers(e)
+			if !ok {
+				return nil, false
+			}
+			v[i] = c
+		}
+	case map[string]any:
+		for k, e := range v {
+			c, ok := canonicalNumbers(e)
+			if !ok {
+				return nil, false
+			}
+			v[k] = c
+		}
+	}
+	return v, true
 }
 
 // ListedVirtualTopic is a virtual topic in the GET /topics listing. The listing renders the filter

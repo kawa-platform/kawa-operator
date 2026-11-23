@@ -138,17 +138,28 @@ spec:
                     field:
                       description: field is the dotted path a defaultField step sets;
                         missing parent objects are created.
+                      maxLength: 256
                       minLength: 1
                       type: string
+                      x-kubernetes-validations:
+                      - message: must be a dotted field path that is not blank and
+                          has no empty segment
+                        rule: self.matches(r'^([^.]+\.)*[^.]*[^.\s\x0B][^.]*(\.[^.]+)*$')
                     fields:
                       description: fields are the dotted paths a dropFields step removes;
                         a path the value does not have is ignored.
                       items:
+                        maxLength: 256
                         minLength: 1
                         type: string
+                      maxItems: 64
                       minItems: 1
                       type: array
                       x-kubernetes-list-type: atomic
+                      x-kubernetes-validations:
+                      - message: fields must be dotted field paths that are not blank
+                          and have no empty segment
+                        rule: self.all(p, p.matches(r'^([^.]+\.)*[^.]*[^.\s\x0B][^.]*(\.[^.]+)*$'))
                     format:
                       description: format is what a convert step encodes the value
                         as.
@@ -203,13 +214,23 @@ spec:
                     from:
                       description: from is the dotted path of the field a renameField
                         step moves.
+                      maxLength: 256
                       minLength: 1
                       type: string
+                      x-kubernetes-validations:
+                      - message: must be a dotted field path that is not blank and
+                          has no empty segment
+                        rule: self.matches(r'^([^.]+\.)*[^.]*[^.\s\x0B][^.]*(\.[^.]+)*$')
                     to:
                       description: to is the dotted path a renameField step moves
                         the field to.
+                      maxLength: 256
                       minLength: 1
                       type: string
+                      x-kubernetes-validations:
+                      - message: must be a dotted field path that is not blank and
+                          has no empty segment
+                        rule: self.matches(r'^([^.]+\.)*[^.]*[^.\s\x0B][^.]*(\.[^.]+)*$')
                     type:
                       description: |-
                         type of the step: dropFields removes fields, renameField moves a field, defaultField sets a
@@ -244,8 +265,18 @@ spec:
                     rule: 'self.type == ''cel'' ? has(self.expression) : !has(self.expression)'
                   - message: format is required for convert and allowed only there
                     rule: 'self.type == ''convert'' ? has(self.format) : !has(self.format)'
+                  - message: renameField cannot move a field to itself or into a path
+                      that contains the other
+                    rule: '!has(self.from) || !has(self.to) || (self.from != self.to
+                      && !self.to.startsWith(self.from + ''.'') && !self.from.startsWith(self.to
+                      + ''.''))'
+                maxItems: 100
                 type: array
                 x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: a convert step may only be the last step
+                  rule: '!self.exists(t, t.type == ''convert'') || (self.exists_one(t,
+                    t.type == ''convert'') && self[size(self)-1].type == ''convert'')'
               valueFormat:
                 description: |-
                   valueFormat is the encoding of record values, so content-based (cel) filters and
@@ -314,6 +345,24 @@ spec:
             - message: virtualTopic is immutable
               rule: has(self.virtualTopic) == has(oldSelf.virtualTopic) && (!has(self.virtualTopic)
                 || self.virtualTopic == oldSelf.virtualTopic)
+            - message: transformations require valueFormat
+              rule: '!has(self.transformations) || size(self.transformations) == 0
+                || has(self.valueFormat)'
+            - message: encoding transformed values as avro requires a subject
+              rule: '!has(self.transformations) || size(self.transformations) == 0
+                || (self.transformations[size(self.transformations)-1].type == ''convert''
+                ? (!has(self.transformations[size(self.transformations)-1].format)
+                || self.transformations[size(self.transformations)-1].format.type
+                != ''avro'' || has(self.transformations[size(self.transformations)-1].format.subject))
+                : (!has(self.valueFormat) || self.valueFormat.type != ''avro'' ||
+                has(self.valueFormat.subject)))'
+            - message: encoding transformed values as xml requires a root
+              rule: '!has(self.transformations) || size(self.transformations) == 0
+                || (self.transformations[size(self.transformations)-1].type == ''convert''
+                ? (!has(self.transformations[size(self.transformations)-1].format)
+                || self.transformations[size(self.transformations)-1].format.type
+                != ''xml'' || has(self.transformations[size(self.transformations)-1].format.root))
+                : (!has(self.valueFormat) || self.valueFormat.type != ''xml'' || has(self.valueFormat.root)))'
           status:
             description: VirtualTopicStatus is the observed state of a VirtualTopic.
             properties:

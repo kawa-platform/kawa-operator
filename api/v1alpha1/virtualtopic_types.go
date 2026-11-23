@@ -15,6 +15,9 @@ const AdoptAnnotation = "kawa-platform.github.io/adopt"
 
 // VirtualTopicSpec is the desired virtual topic on the operator's gateway.
 // +kubebuilder:validation:XValidation:rule="has(self.virtualTopic) == has(oldSelf.virtualTopic) && (!has(self.virtualTopic) || self.virtualTopic == oldSelf.virtualTopic)",message="virtualTopic is immutable"
+// +kubebuilder:validation:XValidation:rule="!has(self.transformations) || size(self.transformations) == 0 || has(self.valueFormat)",message="transformations require valueFormat"
+// +kubebuilder:validation:XValidation:rule="!has(self.transformations) || size(self.transformations) == 0 || (self.transformations[size(self.transformations)-1].type == 'convert' ? (!has(self.transformations[size(self.transformations)-1].format) || self.transformations[size(self.transformations)-1].format.type != 'avro' || has(self.transformations[size(self.transformations)-1].format.subject)) : (!has(self.valueFormat) || self.valueFormat.type != 'avro' || has(self.valueFormat.subject)))",message="encoding transformed values as avro requires a subject"
+// +kubebuilder:validation:XValidation:rule="!has(self.transformations) || size(self.transformations) == 0 || (self.transformations[size(self.transformations)-1].type == 'convert' ? (!has(self.transformations[size(self.transformations)-1].format) || self.transformations[size(self.transformations)-1].format.type != 'xml' || has(self.transformations[size(self.transformations)-1].format.root)) : (!has(self.valueFormat) || self.valueFormat.type != 'xml' || has(self.valueFormat.root)))",message="encoding transformed values as xml requires a root"
 type VirtualTopicSpec struct {
 	// virtualTopic is the virtual topic name clients use. Defaults to the VirtualTopic's
 	// metadata.name; set it for a name Kubernetes does not allow, such as one with upper case
@@ -53,6 +56,8 @@ type VirtualTopicSpec struct {
 	// refusal is reported as InvalidSpec.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:XValidation:rule="!self.exists(t, t.type == 'convert') || (self.exists_one(t, t.type == 'convert') && self[size(self)-1].type == 'convert')",message="a convert step may only be the last step"
 	Transformations []Transformation `json:"transformations,omitempty"`
 
 	// deletionPolicy: Delete removes the virtual topic from the gateway when the VirtualTopic is
@@ -125,6 +130,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.type == 'defaultField' ? has(self.field) : !has(self.field)",message="field is required for defaultField and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'cel' ? has(self.expression) : !has(self.expression)",message="expression is required for cel and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'convert' ? has(self.format) : !has(self.format)",message="format is required for convert and allowed only there"
+// +kubebuilder:validation:XValidation:rule="!has(self.from) || !has(self.to) || (self.from != self.to && !self.to.startsWith(self.from + '.') && !self.from.startsWith(self.to + '.'))",message="renameField cannot move a field to itself or into a path that contains the other"
 type Transformation struct {
 	// type of the step: dropFields removes fields, renameField moves a field, defaultField sets a
 	// field when it is absent or null, cel replaces the value with the result of a CEL expression,
@@ -136,22 +142,31 @@ type Transformation struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.all(p, p.matches(r'^([^.]+\\.)*[^.]*[^.\\s\\x0B][^.]*(\\.[^.]+)*$'))",message="fields must be dotted field paths that are not blank and have no empty segment"
 	Fields []string `json:"fields,omitempty"`
 
 	// from is the dotted path of the field a renameField step moves.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches(r'^([^.]+\\.)*[^.]*[^.\\s\\x0B][^.]*(\\.[^.]+)*$')",message="must be a dotted field path that is not blank and has no empty segment"
 	From string `json:"from,omitempty"`
 
 	// to is the dotted path a renameField step moves the field to.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches(r'^([^.]+\\.)*[^.]*[^.\\s\\x0B][^.]*(\\.[^.]+)*$')",message="must be a dotted field path that is not blank and has no empty segment"
 	To string `json:"to,omitempty"`
 
 	// field is the dotted path a defaultField step sets; missing parent objects are created.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches(r'^([^.]+\\.)*[^.]*[^.\\s\\x0B][^.]*(\\.[^.]+)*$')",message="must be a dotted field path that is not blank and has no empty segment"
 	Field string `json:"field,omitempty"`
 
 	// value is the default of a defaultField step, any JSON value; omitted (or null, which the API
