@@ -2,8 +2,12 @@ package kawa_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/kawa-platform/kawa-operator/internal/kawa"
@@ -253,5 +257,176 @@ func TestAdminReportsAnUnreadableEndpoint(t *testing.T) {
 
 	if _, err := admin.Client(); err == nil || err.Error() != "no secret file" {
 		t.Fatalf("the endpoint error was not reported: %v", err)
+	}
+}
+
+// everyStep is one step of each type, with its wire form.
+var everyStep = []kawa.Transformation{
+	{Type: "dropFields", Fields: []string{"internal_risk_score", "customer.ssn"}},
+	{Type: "renameField", From: "order_id", To: "id"},
+	{Type: "defaultField", Field: "currency", Value: json.RawMessage(`{"code":"EUR","digits":2}`)},
+	{Type: "cel", Expression: `{"id": value.id}`},
+	{Type: "convert", Format: &kawa.PayloadFormat{Type: "avro", OnDecodeError: "fail", Subject: "orders-value", Version: 3}},
+}
+
+const everyStepJSON = `[
+	{"type": "dropFields", "fields": ["internal_risk_score", "customer.ssn"]},
+	{"type": "renameField", "from": "order_id", "to": "id"},
+	{"type": "defaultField", "field": "currency", "value": {"code": "EUR", "digits": 2}},
+	{"type": "cel", "expression": "{\"id\": value.id}"},
+	{"type": "convert", "format": {"type": "avro", "onDecodeError": "fail", "subject": "orders-value", "version": 3}}
+]`
+
+func TestSendsEveryTransformationStepInTheWireShape(t *testing.T) {
+	// given
+	var body map[string]any
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(payload, &body)
+	}))
+	defer gateway.Close()
+	client := newClient(t, kawa.Endpoint{BaseURL: gateway.URL})
+	topic := kawa.VirtualTopic{
+		Topic:           "orders-v2",
+		ValueFormat:     &kawa.PayloadFormat{Type: "xml", OnDecodeError: "skip", Root: "order"},
+		Transformations: everyStep,
+	}
+
+	// when
+	err := client.PutVirtualTopic(context.Background(), "orders", topic)
+
+	// then
+	if err != nil {
+		t.Fatalf("PUT failed: %v", err)
+	}
+	var want any
+	if err := json.Unmarshal([]byte(everyStepJSON), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(body["transformations"], want) {
+		t.Errorf("the steps were sent as %v, want %v", body["transformations"], want)
+	}
+	if format := body["valueFormat"]; !reflect.DeepEqual(format, map[string]any{"type": "xml", "onDecodeError": "skip", "root": "order"}) {
+		t.Errorf("the value format was sent as %v", format)
+	}
+}
+
+func TestSendsADefaultFieldWithoutValueAsNullAndOtherValuesAsTheyAre(t *testing.T) {
+	cases := map[string]string{
+		"":        `{"type":"defaultField","field":"n","value":null}`,
+		`null`:    `{"type":"defaultField","field":"n","value":null}`,
+		`false`:   `{"type":"defaultField","field":"n","value":false}`,
+		`0`:       `{"type":"defaultField","field":"n","value":0}`,
+		`""`:      `{"type":"defaultField","field":"n","value":""}`,
+		`[]`:      `{"type":"defaultField","field":"n","value":[]}`,
+		`{"a":1}`: `{"type":"defaultField","field":"n","value":{"a":1}}`,
+	}
+	for value, want := range cases {
+		step := kawa.Transformation{Type: "defaultField", Field: "n"}
+		if value != "" {
+			step.Value = json.RawMessage(value)
+		}
+		got, err := json.Marshal(step)
+		if err != nil || string(got) != want {
+			t.Errorf("a defaultField with value %q was sent as %s (%v), want %s", value, got, err, want)
+		}
+	}
+}
+
+func TestSendsOnlyTheKeysOfTheStepType(t *testing.T) {
+	cases := map[string]kawa.Transformation{
+		`{"type":"dropFields","fields":["a"]}`:          {Type: "dropFields", Fields: []string{"a"}},
+		`{"type":"renameField","from":"a","to":"b"}`:    {Type: "renameField", From: "a", To: "b"},
+		`{"type":"cel","expression":"value"}`:           {Type: "cel", Expression: "value"},
+		`{"type":"convert","format":{"type":"json"}}`:   {Type: "convert", Format: &kawa.PayloadFormat{Type: "json"}},
+		`{"type":"defaultField","field":"a","value":1}`: {Type: "defaultField", Field: "a", Value: json.RawMessage(`1`)},
+	}
+	for want, step := range cases {
+		if got, err := json.Marshal(step); err != nil || string(got) != want {
+			t.Errorf("the step %+v was sent as %s (%v), want %s", step, got, err, want)
+		}
+	}
+}
+
+func TestOmitsTransformationsWhenThereAreNone(t *testing.T) {
+	// given
+	var body map[string]any
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(payload, &body)
+	}))
+	defer gateway.Close()
+	client := newClient(t, kawa.Endpoint{BaseURL: gateway.URL})
+
+	// when
+	err := client.PutVirtualTopic(context.Background(), "orders", kawa.VirtualTopic{Topic: "orders-v2"})
+
+	// then
+	if _, sent := body["transformations"]; err != nil || sent {
+		t.Fatalf("a virtual topic without steps was sent with transformations: %v %v", err, body)
+	}
+}
+
+func TestReadsEveryTransformationStepFromTheListing(t *testing.T) {
+	// given
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `[{"type": "virtual", "name": "orders", "physicalTopic": "orders-v2",
+			"valueFormat": {"type": "json", "onDecodeError": "skip"}, "transformations": `+everyStepJSON+`}]`)
+	}))
+	defer gateway.Close()
+	client := newClient(t, kawa.Endpoint{BaseURL: gateway.URL})
+
+	// when
+	topics, err := client.ListTopics(context.Background())
+
+	// then
+	if err != nil {
+		t.Fatalf("GET /topics failed: %v", err)
+	}
+	listed := topics.Virtual["orders"].Transformations
+	if !kawa.TransformationsEqual(listed, everyStep) {
+		t.Errorf("the steps were read as %+v", listed)
+	}
+	if !reflect.DeepEqual(listed[4].Format, everyStep[4].Format) {
+		t.Errorf("the convert format was read as %+v", listed[4].Format)
+	}
+}
+
+func TestComparesTransformationsByMeaning(t *testing.T) {
+	defaultTo := func(value string) []kawa.Transformation {
+		step := kawa.Transformation{Type: "defaultField", Field: "n"}
+		if value != "" {
+			step.Value = json.RawMessage(value)
+		}
+		return []kawa.Transformation{step}
+	}
+	equal := map[string][2][]kawa.Transformation{
+		"absent and empty lists":     {nil, {}},
+		"an integer and a float":     {defaultTo(`1`), defaultTo(`1.0`)},
+		"objects spaced and ordered": {defaultTo(`{"a":1,"b":[true,null]}`), defaultTo(`{ "b": [true, null], "a": 1 }`)},
+		"a missing value and null":   {defaultTo(""), defaultTo(`null`)},
+		"the same steps":             {everyStep, everyStep},
+	}
+	for name, c := range equal {
+		if !kawa.TransformationsEqual(c[0], c[1]) {
+			t.Errorf("%s compared unequal", name)
+		}
+	}
+	otherFormat := append([]kawa.Transformation(nil), everyStep...)
+	otherFormat[4] = kawa.Transformation{Type: "convert", Format: &kawa.PayloadFormat{Type: "avro", OnDecodeError: "fail", Subject: "orders-value"}}
+	unequal := map[string][2][]kawa.Transformation{
+		"different numbers":          {defaultTo(`1`), defaultTo(`2`)},
+		"a number and a string":      {defaultTo(`1`), defaultTo(`"1"`)},
+		"a missing step":             {everyStep, everyStep[:4]},
+		"a different convert format": {everyStep, otherFormat},
+		"reordered dropped fields": {
+			{{Type: "dropFields", Fields: []string{"a", "b"}}},
+			{{Type: "dropFields", Fields: []string{"b", "a"}}},
+		},
+	}
+	for name, c := range unequal {
+		if kawa.TransformationsEqual(c[0], c[1]) {
+			t.Errorf("%s compared equal", name)
+		}
 	}
 }

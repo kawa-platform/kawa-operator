@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -23,6 +24,8 @@ type VirtualTopic struct {
 	Filter              *Filter
 	ExposePhysicalTopic bool
 	ValueFormat         *PayloadFormat
+	// Transformations are the value transformation steps, applied in order on fetch.
+	Transformations []Transformation
 }
 
 // Filter is a consume filter: Type is headerEquals, headerContains, headerStartsWith,
@@ -34,10 +37,63 @@ type Filter struct {
 	Expression string `json:"expression,omitempty"`
 }
 
-// PayloadFormat is the encoding of record values: Type json or avro.
+// PayloadFormat is the encoding of record values: Type json, avro (Subject and Version name the
+// schema transformed values are encoded with) or xml (Root is the root element).
 type PayloadFormat struct {
 	Type          string `json:"type"`
 	OnDecodeError string `json:"onDecodeError,omitempty"`
+	Subject       string `json:"subject,omitempty"`
+	Version       int32  `json:"version,omitempty"`
+	Root          string `json:"root,omitempty"`
+}
+
+// Transformation is one value transformation step: Type dropFields (Fields), renameField (From and
+// To), defaultField (Field and Value, any JSON), cel (Expression) or convert (Format).
+type Transformation struct {
+	Type       string          `json:"type"`
+	Fields     []string        `json:"fields,omitempty"`
+	From       string          `json:"from,omitempty"`
+	To         string          `json:"to,omitempty"`
+	Field      string          `json:"field,omitempty"`
+	Value      json.RawMessage `json:"value,omitempty"`
+	Expression string          `json:"expression,omitempty"`
+	Format     *PayloadFormat  `json:"format,omitempty"`
+}
+
+// MarshalJSON writes only the keys that are set, except that a defaultField step always has a
+// value: the admin API requires the key, and an empty Value means null.
+func (t Transformation) MarshalJSON() ([]byte, error) {
+	type step Transformation // without this method
+	if t.Type != "defaultField" || len(t.Value) > 0 {
+		return json.Marshal(step(t))
+	}
+	return json.Marshal(struct {
+		step
+		Value json.RawMessage `json:"value"`
+	}{step(t), json.RawMessage("null")})
+}
+
+// TransformationsEqual is whether a and b are the same steps. An empty list equals a missing one,
+// and defaultField values are compared as JSON values, so 1 equals 1.0 and a missing value equals
+// null.
+func TransformationsEqual(a, b []Transformation) bool {
+	return slices.EqualFunc(a, b, func(x, y Transformation) bool {
+		return jsonEqual(x.Value, y.Value) && x.Type == y.Type && slices.Equal(x.Fields, y.Fields) && x.From == y.From && x.To == y.To &&
+			x.Field == y.Field && x.Expression == y.Expression &&
+			(x.Format == nil) == (y.Format == nil) && (x.Format == nil || *x.Format == *y.Format)
+	})
+}
+
+// jsonEqual is whether a and b are the same JSON value; empty is null.
+func jsonEqual(a, b json.RawMessage) bool {
+	var x, y any
+	if len(a) > 0 && json.Unmarshal(a, &x) != nil {
+		return false
+	}
+	if len(b) > 0 && json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // ListedVirtualTopic is a virtual topic in the GET /topics listing. The listing renders the filter
@@ -49,6 +105,7 @@ type ListedVirtualTopic struct {
 	Filter              *FilterView
 	ExposePhysicalTopic bool
 	ValueFormat         *PayloadFormat
+	Transformations     []Transformation
 	ManagedBy           *ManagedBy
 }
 
@@ -195,13 +252,14 @@ func (c *Client) Manages(m *ManagedBy) bool {
 // ListTopics reads GET /topics.
 func (c *Client) ListTopics(ctx context.Context) (*Topics, error) {
 	var listing []struct {
-		Type                string         `json:"type"`
-		Name                string         `json:"name"`
-		Filter              *FilterView    `json:"filter"`
-		PhysicalTopic       string         `json:"physicalTopic"`
-		ExposePhysicalTopic *bool          `json:"exposePhysicalTopic"`
-		ValueFormat         *PayloadFormat `json:"valueFormat"`
-		ManagedBy           *ManagedBy     `json:"managedBy"`
+		Type                string           `json:"type"`
+		Name                string           `json:"name"`
+		Filter              *FilterView      `json:"filter"`
+		PhysicalTopic       string           `json:"physicalTopic"`
+		ExposePhysicalTopic *bool            `json:"exposePhysicalTopic"`
+		ValueFormat         *PayloadFormat   `json:"valueFormat"`
+		Transformations     []Transformation `json:"transformations"`
+		ManagedBy           *ManagedBy       `json:"managedBy"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/topics", nil, &listing); err != nil {
 		return nil, err
@@ -216,6 +274,7 @@ func (c *Client) ListTopics(ctx context.Context) (*Topics, error) {
 				Filter:              t.Filter,
 				ExposePhysicalTopic: t.ExposePhysicalTopic != nil && *t.ExposePhysicalTopic,
 				ValueFormat:         t.ValueFormat,
+				Transformations:     t.Transformations,
 				ManagedBy:           t.ManagedBy,
 			}
 		case "physical":
@@ -229,12 +288,13 @@ func (c *Client) ListTopics(ctx context.Context) (*Topics, error) {
 // cluster applied it.
 func (c *Client) PutVirtualTopic(ctx context.Context, name string, topic VirtualTopic) error {
 	body := struct {
-		Type                string         `json:"type"`
-		Topic               string         `json:"topic"`
-		Filter              *Filter        `json:"filter,omitempty"`
-		ExposePhysicalTopic bool           `json:"exposePhysicalTopic"`
-		ValueFormat         *PayloadFormat `json:"valueFormat,omitempty"`
-	}{"virtual", topic.Topic, topic.Filter, topic.ExposePhysicalTopic, topic.ValueFormat}
+		Type                string           `json:"type"`
+		Topic               string           `json:"topic"`
+		Filter              *Filter          `json:"filter,omitempty"`
+		ExposePhysicalTopic bool             `json:"exposePhysicalTopic"`
+		ValueFormat         *PayloadFormat   `json:"valueFormat,omitempty"`
+		Transformations     []Transformation `json:"transformations,omitempty"`
+	}{"virtual", topic.Topic, topic.Filter, topic.ExposePhysicalTopic, topic.ValueFormat, topic.Transformations}
 	return c.do(ctx, http.MethodPut, "/topics/"+url.PathEscape(name)+"?consistency=applied", body, nil)
 }
 

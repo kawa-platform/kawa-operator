@@ -10,3 +10,23 @@ spec:
     type: headerEquals
     header: region
     value: eu
+---
+apiVersion: kawa-platform.github.io/v1alpha1
+kind: VirtualTopic
+metadata:
+  name: orders-public
+spec:
+  physicalTopic: orders-v2
+  # Values are stored as Avro (the gateway's cluster needs a schemaRegistry) ...
+  valueFormat:
+    type: avro
+  # ... and served as JSON, without the internal field and with order_id renamed to id.
+  transformations:
+    - type: dropFields
+      fields: [internal_risk_score]
+    - type: renameField
+      from: order_id
+      to: id
+    - type: convert
+      format:
+        type: json
