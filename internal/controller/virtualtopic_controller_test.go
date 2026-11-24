@@ -408,6 +408,27 @@ var _ = Describe("VirtualTopic controller", func() {
 		})).To(BeTrue(), "the gateway holds the steps %+v", topic.Transformations)
 	})
 
+	It("serves header steps after the convert step", func() {
+		// given
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		vt.Spec.Transformations = append(vt.Spec.Transformations,
+			kawav1alpha1.Transformation{Type: kawav1alpha1.TransformationDropHeaders, Headers: []string{"__TypeId__"}},
+			kawav1alpha1.Transformation{Type: kawav1alpha1.TransformationSetHeader, Header: "content-type",
+				Value: &apiextensionsv1.JSON{Raw: []byte(`"application/json"`)}})
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+		topic, _ := gateway.Virtual("orders")
+		Expect(topic.Transformations[4:]).To(Equal([]kawa.Transformation{
+			{Type: "dropHeaders", Headers: []string{"__TypeId__"}},
+			{Type: "setHeader", Header: "content-type", Value: json.RawMessage(`"application/json"`)},
+		}), "the gateway holds the steps %+v", topic.Transformations)
+	})
+
 	It("restores transformations changed outside the operator", func() {
 		// given
 		gateway := newGateway()
@@ -564,6 +585,18 @@ var _ = Describe("VirtualTopic controller", func() {
 		jsonWithRoot.Name = "f"
 		jsonWithRoot.Spec.ValueFormat = &kawav1alpha1.PayloadFormat{Type: "json", Root: "order"}
 		Expect(invalid(jsonWithRoot)).To(ContainSubstring("root is allowed only for xml"))
+
+		setHeaderWithoutHeader := transformedOrders(ns)
+		setHeaderWithoutHeader.Name = "g"
+		setHeaderWithoutHeader.Spec.Transformations = []kawav1alpha1.Transformation{
+			{Type: kawav1alpha1.TransformationSetHeader, Value: &apiextensionsv1.JSON{Raw: []byte(`"x"`)}},
+		}
+		Expect(invalid(setHeaderWithoutHeader)).To(ContainSubstring("header is required for setHeader"))
+
+		dropNoHeaders := transformedOrders(ns)
+		dropNoHeaders.Name = "h"
+		dropNoHeaders.Spec.Transformations = []kawav1alpha1.Transformation{{Type: kawav1alpha1.TransformationDropHeaders}}
+		Expect(invalid(dropNoHeaders)).To(ContainSubstring("headers is required for dropHeaders"))
 	})
 
 	It("does not allow renaming the virtual topic", func() {

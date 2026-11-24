@@ -267,6 +267,8 @@ var everyStep = []kawa.Transformation{
 	{Type: "defaultField", Field: "currency", Value: json.RawMessage(`{"code":"EUR","digits":2}`)},
 	{Type: "cel", Expression: `{"id": value.id}`},
 	{Type: "convert", Format: &kawa.PayloadFormat{Type: "avro", OnDecodeError: "fail", Subject: "orders-value", Version: 3}},
+	{Type: "dropHeaders", Headers: []string{"__TypeId__", "content-type"}},
+	{Type: "setHeader", Header: "content-type", Value: json.RawMessage(`"application/avro"`)},
 }
 
 const everyStepJSON = `[
@@ -274,7 +276,9 @@ const everyStepJSON = `[
 	{"type": "renameField", "from": "order_id", "to": "id"},
 	{"type": "defaultField", "field": "currency", "value": {"code": "EUR", "digits": 2}},
 	{"type": "cel", "expression": "{\"id\": value.id}"},
-	{"type": "convert", "format": {"type": "avro", "onDecodeError": "fail", "subject": "orders-value", "version": 3}}
+	{"type": "convert", "format": {"type": "avro", "onDecodeError": "fail", "subject": "orders-value", "version": 3}},
+	{"type": "dropHeaders", "headers": ["__TypeId__", "content-type"]},
+	{"type": "setHeader", "header": "content-type", "value": "application/avro"}
 ]`
 
 func TestSendsEveryTransformationStepInTheWireShape(t *testing.T) {
@@ -419,6 +423,14 @@ func TestComparesTransformationsByMeaning(t *testing.T) {
 		"a number and a string":      {defaultTo(`1`), defaultTo(`"1"`)},
 		"a missing step":             {everyStep, everyStep[:4]},
 		"a different convert format": {everyStep, otherFormat},
+		"different dropped headers": {
+			{{Type: "dropHeaders", Headers: []string{"a"}}},
+			{{Type: "dropHeaders", Headers: []string{"b"}}},
+		},
+		"a different set header": {
+			{{Type: "setHeader", Header: "a", Value: json.RawMessage(`"x"`)}},
+			{{Type: "setHeader", Header: "b", Value: json.RawMessage(`"x"`)}},
+		},
 		"reordered dropped fields": {
 			{{Type: "dropFields", Fields: []string{"a", "b"}}},
 			{{Type: "dropFields", Fields: []string{"b", "a"}}},

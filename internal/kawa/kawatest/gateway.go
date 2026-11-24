@@ -330,6 +330,8 @@ var (
 		"defaultField": {"type", "field", "value"},
 		"cel":          {"type", "expression"},
 		"convert":      {"type", "format"},
+		"dropHeaders":  {"type", "headers"},
+		"setHeader":    {"type", "header", "value"},
 	}
 	formatKeys = []string{"type", "onDecodeError", "subject", "version", "root"}
 )
@@ -357,7 +359,7 @@ func parseTransformations(raw []map[string]json.RawMessage) ([]kawa.Transformati
 				return nil, prefix + "unknown property 'format." + key + "'"
 			}
 		}
-		if _, ok := fields["value"]; kind == "defaultField" && !ok {
+		if _, ok := fields["value"]; (kind == "defaultField" || kind == "setHeader") && !ok {
 			return nil, prefix + "'value' is required"
 		}
 		encoded, _ := json.Marshal(fields)
@@ -386,14 +388,18 @@ func unknownKey(fields map[string]json.RawMessage, known []string) string {
 }
 
 // invalidTransformations is the gateway's 400 message for steps it refuses, or "": steps need a
-// value format, and convert may only be the last step.
+// value format, and only header steps may follow convert.
 func invalidTransformations(valueFormat *kawa.PayloadFormat, steps []kawa.Transformation) string {
 	if len(steps) > 0 && valueFormat == nil {
 		return "transformations require a 'valueFormat' to decode the record value"
 	}
+	convert := -1
 	for i, step := range steps {
-		if step.Type == "convert" && i != len(steps)-1 {
-			return fmt.Sprintf("transformations[%d] (convert): convert may only be the last step", i)
+		if convert >= 0 && step.Type != "dropHeaders" && step.Type != "setHeader" {
+			return fmt.Sprintf("transformations[%d] (convert): only header steps may follow it", convert)
+		}
+		if step.Type == "convert" {
+			convert = i
 		}
 	}
 	return ""

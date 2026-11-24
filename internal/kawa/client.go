@@ -47,8 +47,9 @@ type PayloadFormat struct {
 	Root          string `json:"root,omitempty"`
 }
 
-// Transformation is one value transformation step: Type dropFields (Fields), renameField (From and
-// To), defaultField (Field and Value, any JSON), cel (Expression) or convert (Format).
+// Transformation is one transformation step: Type dropFields (Fields), renameField (From and
+// To), defaultField (Field and Value, any JSON), cel (Expression), convert (Format), dropHeaders
+// (Headers) or setHeader (Header and Value, a JSON string).
 type Transformation struct {
 	Type       string          `json:"type"`
 	Fields     []string        `json:"fields,omitempty"`
@@ -58,6 +59,8 @@ type Transformation struct {
 	Value      json.RawMessage `json:"value,omitempty"`
 	Expression string          `json:"expression,omitempty"`
 	Format     *PayloadFormat  `json:"format,omitempty"`
+	Headers    []string        `json:"headers,omitempty"`
+	Header     string          `json:"header,omitempty"`
 }
 
 // MarshalJSON writes only the keys that are set, except that a defaultField step always has a
@@ -79,7 +82,7 @@ func (t Transformation) MarshalJSON() ([]byte, error) {
 func TransformationsEqual(a, b []Transformation) bool {
 	return slices.EqualFunc(a, b, func(x, y Transformation) bool {
 		return jsonEqual(x.Value, y.Value) && x.Type == y.Type && slices.Equal(x.Fields, y.Fields) && x.From == y.From && x.To == y.To &&
-			x.Field == y.Field && x.Expression == y.Expression &&
+			x.Field == y.Field && x.Expression == y.Expression && slices.Equal(x.Headers, y.Headers) && x.Header == y.Header &&
 			(x.Format == nil) == (y.Format == nil) && (x.Format == nil || *x.Format == *y.Format)
 	})
 }

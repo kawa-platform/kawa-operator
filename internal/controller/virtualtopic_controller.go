@@ -98,7 +98,7 @@ func desiredVirtualTopic(vt *kawav1alpha1.VirtualTopic) kawa.VirtualTopic {
 	for _, t := range vt.Spec.Transformations {
 		step := kawa.Transformation{
 			Type: string(t.Type), Fields: t.Fields, From: t.From, To: t.To, Field: t.Field,
-			Expression: t.Expression, Format: payloadFormat(t.Format),
+			Expression: t.Expression, Format: payloadFormat(t.Format), Headers: t.Headers, Header: t.Header,
 		}
 		if t.Value != nil {
 			step.Value = t.Value.Raw

@@ -30,3 +30,7 @@ spec:
     - type: convert
       format:
         type: json
+    # The stored records name Avro in content-type; served records name JSON.
+    - type: setHeader
+      header: content-type
+      value: application/json
