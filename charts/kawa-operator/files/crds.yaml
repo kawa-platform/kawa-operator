@@ -693,13 +693,14 @@ spec:
                 type: string
               transformations:
                 description: |-
-                  transformations are value transformation steps the gateway applies in order to each record
-                  value on fetch, after the filter; keys and headers are never changed. A convert step may only
-                  be the last. The gateway validates the steps (paths, CEL expressions, output formats) and a
+                  transformations are the steps the gateway applies in order to each record on fetch, after
+                  the filter. Value steps rewrite the value; header steps (dropHeaders, setHeader) rewrite the
+                  headers of a record whose value was transformed, so format headers match the delivered
+                  value. Keys are never changed. Only header steps may follow a convert step. The gateway validates the steps (paths, CEL expressions, output formats) and a
                   refusal is reported as InvalidSpec.
                 items:
                   description: |-
-                    Transformation is one value transformation step. Fields are addressed by dotted paths
+                    Transformation is one transformation step. Fields are addressed by dotted paths
                     (customer.name); a list on a path applies the step to every element.
                   properties:
                     expression:
@@ -778,6 +779,21 @@ spec:
                         step moves.
                       minLength: 1
                       type: string
+                    header:
+                      description: |-
+                        header is the name of the header a setHeader step sets, matched exactly (case-sensitive);
+                        every header with this name is replaced.
+                      minLength: 1
+                      type: string
+                    headers:
+                      description: headers are the names of the headers a dropHeaders
+                        step removes, matched exactly (case-sensitive).
+                      items:
+                        minLength: 1
+                        type: string
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: atomic
                     to:
                       description: to is the dotted path a renameField step moves
                         the field to.
@@ -787,19 +803,22 @@ spec:
                       description: |-
                         type of the step: dropFields removes fields, renameField moves a field, defaultField sets a
                         field when it is absent or null, cel replaces the value with the result of a CEL expression,
-                        convert encodes the result in another format.
+                        convert encodes the result in another format, dropHeaders removes headers, setHeader sets a header.
                       enum:
                       - dropFields
                       - renameField
                       - defaultField
                       - cel
                       - convert
+                      - dropHeaders
+                      - setHeader
                       type: string
                     value:
                       description: |-
                         value is the default of a defaultField step, any JSON value; omitted (or null, which the API
-                        server drops) means null. Only for defaultField: the gateway refuses it on other steps, which
-                        is reported as InvalidSpec, since CEL cannot check a schemaless field at admission.
+                        server drops) means null. For a setHeader step it is the header value, a string. Only for
+                        defaultField and setHeader: the gateway refuses it on other steps, which is reported as
+                        InvalidSpec, since CEL cannot check a schemaless field at admission.
                       x-kubernetes-preserve-unknown-fields: true
                   required:
                   - type
@@ -817,6 +836,11 @@ spec:
                     rule: 'self.type == ''cel'' ? has(self.expression) : !has(self.expression)'
                   - message: format is required for convert and allowed only there
                     rule: 'self.type == ''convert'' ? has(self.format) : !has(self.format)'
+                  - message: headers is required for dropHeaders and allowed only
+                      there
+                    rule: 'self.type == ''dropHeaders'' ? has(self.headers) : !has(self.headers)'
+                  - message: header is required for setHeader and allowed only there
+                    rule: 'self.type == ''setHeader'' ? has(self.header) : !has(self.header)'
                 type: array
                 x-kubernetes-list-type: atomic
               valueFormat:

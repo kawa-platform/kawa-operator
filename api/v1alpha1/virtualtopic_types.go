@@ -47,9 +47,10 @@ type VirtualTopicSpec struct {
 	// +optional
 	ValueFormat *PayloadFormat `json:"valueFormat,omitempty"`
 
-	// transformations are value transformation steps the gateway applies in order to each record
-	// value on fetch, after the filter; keys and headers are never changed. A convert step may only
-	// be the last. The gateway validates the steps (paths, CEL expressions, output formats) and a
+	// transformations are the steps the gateway applies in order to each record on fetch, after
+	// the filter. Value steps rewrite the value; header steps (dropHeaders, setHeader) rewrite the
+	// headers of a record whose value was transformed, so format headers match the delivered
+	// value. Keys are never changed. Only header steps may follow a convert step. The gateway validates the steps (paths, CEL expressions, output formats) and a
 	// refusal is reported as InvalidSpec.
 	// +optional
 	// +listType=atomic
@@ -107,7 +108,7 @@ type VirtualTopicFilter struct {
 }
 
 // TransformationType is the kind of value transformation step.
-// +kubebuilder:validation:Enum=dropFields;renameField;defaultField;cel;convert
+// +kubebuilder:validation:Enum=dropFields;renameField;defaultField;cel;convert;dropHeaders;setHeader
 type TransformationType string
 
 const (
@@ -116,19 +117,23 @@ const (
 	TransformationDefaultField TransformationType = "defaultField"
 	TransformationCEL          TransformationType = "cel"
 	TransformationConvert      TransformationType = "convert"
+	TransformationDropHeaders  TransformationType = "dropHeaders"
+	TransformationSetHeader    TransformationType = "setHeader"
 )
 
-// Transformation is one value transformation step. Fields are addressed by dotted paths
+// Transformation is one transformation step. Fields are addressed by dotted paths
 // (customer.name); a list on a path applies the step to every element.
 // +kubebuilder:validation:XValidation:rule="self.type == 'dropFields' ? has(self.fields) : !has(self.fields)",message="fields is required for dropFields and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'renameField' ? has(self.from) && has(self.to) : !has(self.from) && !has(self.to)",message="from and to are required for renameField and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'defaultField' ? has(self.field) : !has(self.field)",message="field is required for defaultField and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'cel' ? has(self.expression) : !has(self.expression)",message="expression is required for cel and allowed only there"
 // +kubebuilder:validation:XValidation:rule="self.type == 'convert' ? has(self.format) : !has(self.format)",message="format is required for convert and allowed only there"
+// +kubebuilder:validation:XValidation:rule="self.type == 'dropHeaders' ? has(self.headers) : !has(self.headers)",message="headers is required for dropHeaders and allowed only there"
+// +kubebuilder:validation:XValidation:rule="self.type == 'setHeader' ? has(self.header) : !has(self.header)",message="header is required for setHeader and allowed only there"
 type Transformation struct {
 	// type of the step: dropFields removes fields, renameField moves a field, defaultField sets a
 	// field when it is absent or null, cel replaces the value with the result of a CEL expression,
-	// convert encodes the result in another format.
+	// convert encodes the result in another format, dropHeaders removes headers, setHeader sets a header.
 	// +required
 	Type TransformationType `json:"type"`
 
@@ -155,8 +160,9 @@ type Transformation struct {
 	Field string `json:"field,omitempty"`
 
 	// value is the default of a defaultField step, any JSON value; omitted (or null, which the API
-	// server drops) means null. Only for defaultField: the gateway refuses it on other steps, which
-	// is reported as InvalidSpec, since CEL cannot check a schemaless field at admission.
+	// server drops) means null. For a setHeader step it is the header value, a string. Only for
+	// defaultField and setHeader: the gateway refuses it on other steps, which is reported as
+	// InvalidSpec, since CEL cannot check a schemaless field at admission.
 	// +optional
 	Value *apiextensionsv1.JSON `json:"value,omitempty"`
 
@@ -169,6 +175,19 @@ type Transformation struct {
 	// format is what a convert step encodes the value as.
 	// +optional
 	Format *PayloadFormat `json:"format,omitempty"`
+
+	// headers are the names of the headers a dropHeaders step removes, matched exactly (case-sensitive).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
+	Headers []string `json:"headers,omitempty"`
+
+	// header is the name of the header a setHeader step sets, matched exactly (case-sensitive);
+	// every header with this name is replaced.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Header string `json:"header,omitempty"`
 }
 
 // PayloadFormatType is the encoding of record values.
