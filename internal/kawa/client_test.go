@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/kawa-platform/kawa-operator/internal/kawa"
 	"github.com/kawa-platform/kawa-operator/internal/kawa/kawatest"
 )
@@ -87,6 +89,24 @@ func TestRendersFiltersTheWayTheListingDoes(t *testing.T) {
 	for filter, want := range cases {
 		if got := filter.View(); *got != want {
 			t.Errorf("filter %+v rendered as %+v, the gateway lists %+v", filter, *got, want)
+		}
+	}
+}
+
+func TestRendersAFilterErrorHeaderTheWayTheListingDoes(t *testing.T) {
+	on, off := true, false
+	cases := map[string]struct {
+		errorHeader *bool
+		want        *bool
+	}{
+		"unset": {nil, nil},
+		"true":  {&on, nil},
+		"false": {&off, &off},
+	}
+	for name, c := range cases {
+		filter := kawa.Filter{Type: "cel", Expression: "true", ErrorHeader: c.errorHeader}
+		if got := filter.View().ErrorHeader; !reflect.DeepEqual(got, c.want) {
+			t.Errorf("an errorHeader %s rendered as %v, the gateway lists %v", name, got, c.want)
 		}
 	}
 }
@@ -410,6 +430,10 @@ func TestComparesTransformationsByMeaning(t *testing.T) {
 		"objects spaced and ordered": {defaultTo(`{"a":1,"b":[true,null]}`), defaultTo(`{ "b": [true, null], "a": 1 }`)},
 		"a missing value and null":   {defaultTo(""), defaultTo(`null`)},
 		"the same steps":             {everyStep, everyStep},
+		"an unset and a true errorHeader": {
+			{{Type: "cel", Expression: "value"}},
+			{{Type: "cel", Expression: "value", ErrorHeader: ptr.To(true)}},
+		},
 	}
 	for name, c := range equal {
 		if !kawa.TransformationsEqual(c[0], c[1]) {
@@ -419,6 +443,10 @@ func TestComparesTransformationsByMeaning(t *testing.T) {
 	otherFormat := append([]kawa.Transformation(nil), everyStep...)
 	otherFormat[4] = kawa.Transformation{Type: "convert", Format: &kawa.PayloadFormat{Type: "avro", OnDecodeError: "fail", Subject: "orders-value"}}
 	unequal := map[string][2][]kawa.Transformation{
+		"an errorHeader turned off": {
+			{{Type: "cel", Expression: "value"}},
+			{{Type: "cel", Expression: "value", ErrorHeader: ptr.To(false)}},
+		},
 		"different numbers":          {defaultTo(`1`), defaultTo(`2`)},
 		"a number and a string":      {defaultTo(`1`), defaultTo(`"1"`)},
 		"a missing step":             {everyStep, everyStep[:4]},

@@ -89,7 +89,9 @@ func (r *VirtualTopicReconciler) managed() *managed[*kawav1alpha1.VirtualTopic, 
 func desiredVirtualTopic(vt *kawav1alpha1.VirtualTopic) kawa.VirtualTopic {
 	topic := kawa.VirtualTopic{Topic: vt.Spec.PhysicalTopic, ExposePhysicalTopic: vt.Spec.ExposePhysicalTopic}
 	if f := vt.Spec.Filter; f != nil {
-		topic.Filter = &kawa.Filter{Type: string(f.Type), Header: f.Header, Expression: f.Expression}
+		topic.Filter = &kawa.Filter{
+			Type: string(f.Type), Header: f.Header, Expression: f.Expression, ErrorHeader: kawa.ErrorHeaderOff(f.ErrorHeader),
+		}
 		if f.Value != nil {
 			topic.Filter.Value = *f.Value
 		}
@@ -99,6 +101,7 @@ func desiredVirtualTopic(vt *kawav1alpha1.VirtualTopic) kawa.VirtualTopic {
 		step := kawa.Transformation{
 			Type: string(t.Type), Fields: t.Fields, From: t.From, To: t.To, Field: t.Field,
 			Expression: t.Expression, Format: payloadFormat(t.Format), Headers: t.Headers, Header: t.Header,
+			ErrorHeader: kawa.ErrorHeaderOff(t.ErrorHeader),
 		}
 		if t.Value != nil {
 			step.Value = t.Value.Raw

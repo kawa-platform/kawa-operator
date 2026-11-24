@@ -35,6 +35,9 @@ type Filter struct {
 	Header     string `json:"header,omitempty"`
 	Value      string `json:"value,omitempty"`
 	Expression string `json:"expression,omitempty"`
+	// ErrorHeader is false when the filter turns the kawa-error headers off, nil otherwise: the
+	// gateway lists only a false one, true being the default.
+	ErrorHeader *bool `json:"errorHeader,omitempty"`
 }
 
 // PayloadFormat is the encoding of record values: Type json, avro (Subject and Version name the
@@ -61,6 +64,9 @@ type Transformation struct {
 	Format     *PayloadFormat  `json:"format,omitempty"`
 	Headers    []string        `json:"headers,omitempty"`
 	Header     string          `json:"header,omitempty"`
+	// ErrorHeader is false when the step turns the kawa-error headers off, nil otherwise: the
+	// gateway lists only a false one, true being the default.
+	ErrorHeader *bool `json:"errorHeader,omitempty"`
 }
 
 // MarshalJSON writes only the keys that are set, except that a defaultField step always has a
@@ -83,7 +89,8 @@ func TransformationsEqual(a, b []Transformation) bool {
 	return slices.EqualFunc(a, b, func(x, y Transformation) bool {
 		return jsonEqual(x.Value, y.Value) && x.Type == y.Type && slices.Equal(x.Fields, y.Fields) && x.From == y.From && x.To == y.To &&
 			x.Field == y.Field && x.Expression == y.Expression && slices.Equal(x.Headers, y.Headers) && x.Header == y.Header &&
-			(x.Format == nil) == (y.Format == nil) && (x.Format == nil || *x.Format == *y.Format)
+			(x.Format == nil) == (y.Format == nil) && (x.Format == nil || *x.Format == *y.Format) &&
+			ErrorHeaderOn(x.ErrorHeader) == ErrorHeaderOn(y.ErrorHeader)
 	})
 }
 
@@ -122,6 +129,9 @@ type ManagedBy struct {
 type FilterView struct {
 	Kind       string `json:"kind"`
 	Expression string `json:"expression"`
+	// ErrorHeader is false when the filter turns the kawa-error headers off; the listing leaves
+	// out a true one, the default.
+	ErrorHeader *bool `json:"errorHeader,omitempty"`
 }
 
 // Role is an RBAC role as the admin API stores it.
@@ -186,18 +196,34 @@ func (f *Filter) View() *FilterView {
 	if f == nil {
 		return nil
 	}
+	view := &FilterView{Kind: f.Type, Expression: f.Expression}
 	switch f.Type {
 	case "headerEquals":
-		return &FilterView{Kind: "header", Expression: f.Header + "=" + f.Value}
+		view = &FilterView{Kind: "header", Expression: f.Header + "=" + f.Value}
 	case "headerContains":
-		return &FilterView{Kind: "headerContains", Expression: f.Header + " contains " + f.Value}
+		view = &FilterView{Kind: "headerContains", Expression: f.Header + " contains " + f.Value}
 	case "headerStartsWith":
-		return &FilterView{Kind: "headerStartsWith", Expression: f.Header + " starts with " + f.Value}
+		view = &FilterView{Kind: "headerStartsWith", Expression: f.Header + " starts with " + f.Value}
 	case "headerMatches":
-		return &FilterView{Kind: "headerMatches", Expression: f.Header + " matches " + f.Value}
-	default:
-		return &FilterView{Kind: f.Type, Expression: f.Expression}
+		view = &FilterView{Kind: "headerMatches", Expression: f.Header + " matches " + f.Value}
 	}
+	view.ErrorHeader = ErrorHeaderOff(f.ErrorHeader)
+	return view
+}
+
+// ErrorHeaderOn is whether errorHeader leaves the kawa-error headers on: nil (unset) and true do.
+func ErrorHeaderOn(errorHeader *bool) bool {
+	return errorHeader == nil || *errorHeader
+}
+
+// ErrorHeaderOff is errorHeader in the form the gateway lists it: false when it turns the
+// kawa-error headers off, nil when it leaves them on (the default, which the gateway leaves out).
+func ErrorHeaderOff(errorHeader *bool) *bool {
+	if ErrorHeaderOn(errorHeader) {
+		return nil
+	}
+	off := false
+	return &off
 }
 
 // Topics is the GET /topics listing, split by kind.

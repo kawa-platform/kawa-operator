@@ -452,6 +452,51 @@ var _ = Describe("VirtualTopic controller", func() {
 		}))
 	})
 
+	It("serves error headers turned off and keeps them in sync", func() {
+		// given a filter and a step that turn the error headers off, and a step that sets the default
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		vt.Spec.Filter = &kawav1alpha1.VirtualTopicFilter{Type: kawav1alpha1.FilterCEL, Expression: "value.paid", ErrorHeader: ptr.To(false)}
+		vt.Spec.Transformations[0].ErrorHeader = ptr.To(false)
+		vt.Spec.Transformations[1].ErrorHeader = ptr.To(true)
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+		topic, _ := gateway.Virtual("orders")
+		Expect(topic.Filter.ErrorHeader).To(Equal(ptr.To(false)), "the filter's errorHeader was not sent")
+		Expect(topic.Transformations[0].ErrorHeader).To(Equal(ptr.To(false)), "the step's errorHeader was not sent")
+		Expect(topic.Transformations[1].ErrorHeader).To(BeNil(), "a true errorHeader was not left to the default")
+
+		// when: several resyncs pass
+		time.Sleep(3 * testResyncInterval)
+
+		// then
+		Expect(gateway.Writes("orders")).To(Equal(1), "in-sync error headers were written again on resync")
+	})
+
+	It("restores an errorHeader changed outside the operator", func() {
+		// given
+		gateway := newGateway()
+		vt := transformedOrders(ns)
+		vt.Spec.Transformations[0].ErrorHeader = ptr.To(false)
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+
+		// when: someone turns the error headers back on at the gateway
+		gateway.EditVirtual("orders", func(topic *kawa.VirtualTopic) {
+			topic.Transformations[0].ErrorHeader = nil
+		})
+
+		// then
+		Eventually(func() *bool {
+			topic, _ := gateway.Virtual("orders")
+			return topic.Transformations[0].ErrorHeader
+		}, eventually, poll).Should(Equal(ptr.To(false)), "the errorHeader was not restored")
+	})
+
 	It("restores transformations changed outside the operator", func() {
 		// given
 		gateway := newGateway()
