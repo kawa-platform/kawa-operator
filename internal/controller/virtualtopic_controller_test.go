@@ -429,6 +429,29 @@ var _ = Describe("VirtualTopic controller", func() {
 		}), "the gateway holds the steps %+v", topic.Transformations)
 	})
 
+	It("serves header steps on a topic without a valueFormat", func() {
+		// given: header steps decode nothing, so the topic needs no valueFormat
+		gateway := newGateway()
+		vt := &kawav1alpha1.VirtualTopic{
+			ObjectMeta: v1.ObjectMeta{Namespace: ns, Name: "events"},
+			Spec:       kawav1alpha1.VirtualTopicSpec{PhysicalTopic: "events-raw"},
+		}
+		vt.Spec.Transformations = []kawav1alpha1.Transformation{
+			{Type: kawav1alpha1.TransformationDropHeaders, Headers: []string{"__TypeId__"}},
+		}
+
+		// when
+		Expect(k8sClient.Create(ctx, vt)).To(Succeed())
+
+		// then
+		Eventually(readyReason(vt), eventually, poll).Should(Equal(ReasonSynced))
+		topic, _ := gateway.Virtual("events")
+		Expect(topic.ValueFormat).To(BeNil())
+		Expect(topic.Transformations).To(Equal([]kawa.Transformation{
+			{Type: "dropHeaders", Headers: []string{"__TypeId__"}},
+		}))
+	})
+
 	It("restores transformations changed outside the operator", func() {
 		// given
 		gateway := newGateway()

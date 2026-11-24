@@ -695,7 +695,7 @@ spec:
                 description: |-
                   transformations are the steps the gateway applies in order to each record on fetch, after
                   the filter. Value steps rewrite the value; header steps (dropHeaders, setHeader) rewrite the
-                  headers of a record whose value was transformed, so format headers match the delivered
+                  headers of the records the topic delivers, so format headers match the delivered
                   value. Keys are never changed. Only header steps may follow a convert step. The gateway validates the steps (paths, CEL expressions, output formats) and a
                   refusal is reported as InvalidSpec.
                 items:
@@ -846,7 +846,7 @@ spec:
               valueFormat:
                 description: |-
                   valueFormat is the encoding of record values, so content-based (cel) filters and
-                  transformations see the decoded value instead of the raw string. Required with transformations.
+                  transformations see the decoded value instead of the raw string. Required with value steps and convert; header steps alone do not need it.
                 properties:
                   onDecodeError:
                     default: skip

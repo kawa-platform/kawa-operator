@@ -387,11 +387,13 @@ func unknownKey(fields map[string]json.RawMessage, known []string) string {
 	return ""
 }
 
-// invalidTransformations is the gateway's 400 message for steps it refuses, or "": steps need a
-// value format, and only header steps may follow convert.
+// invalidTransformations is the gateway's 400 message for steps it refuses, or "": value steps and
+// convert need a value format, and only header steps may follow convert.
 func invalidTransformations(valueFormat *kawa.PayloadFormat, steps []kawa.Transformation) string {
-	if len(steps) > 0 && valueFormat == nil {
-		return "transformations require a 'valueFormat' to decode the record value"
+	for _, step := range steps {
+		if step.Type != "dropHeaders" && step.Type != "setHeader" && valueFormat == nil {
+			return "value transformations and convert require a 'valueFormat' to decode the record value"
+		}
 	}
 	convert := -1
 	for i, step := range steps {
