@@ -80,6 +80,12 @@ spec:
                   filter is a server-side consume filter: records that do not match are dropped at the
                   gateway during Fetch.
                 properties:
+                  errorHeader:
+                    description: |-
+                      errorHeader is whether a record the filter cannot decode, delivered anyway because the value
+                      format's onDecodeError is include, carries the kawa-error headers that say why. Defaults to
+                      true.
+                    type: boolean
                   expression:
                     description: expression is the CEL expression of a cel filter;
                       it must evaluate to a boolean.
@@ -130,6 +136,13 @@ spec:
                     Transformation is one transformation step. Fields are addressed by dotted paths
                     (customer.name); a list on a path applies the step to every element.
                   properties:
+                    errorHeader:
+                      description: |-
+                        errorHeader is whether a record this step fails on, delivered untransformed because the value
+                        format's onDecodeError is include, carries the kawa-error headers that say why. A value that
+                        does not decode fails the first value step, one that does not encode the convert step (the
+                        last value step without one). Header steps never fail. Defaults to true.
+                      type: boolean
                     expression:
                       description: |-
                         expression is the CEL expression of a cel step, with the key, value, headers and timestamp

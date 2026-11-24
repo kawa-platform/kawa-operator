@@ -314,6 +314,9 @@ func (g *Gateway) put(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "virtual topic requires a physical 'topic'"})
 		return
 	}
+	if body.Filter != nil {
+		body.Filter.ErrorHeader = kawa.ErrorHeaderOff(body.Filter.ErrorHeader)
+	}
 	g.virtual[name] = kawa.VirtualTopic{
 		Topic: body.Topic, Filter: body.Filter, ExposePhysicalTopic: body.ExposePhysicalTopic,
 		ValueFormat: normalizedFormat(body.ValueFormat), Transformations: normalizedTransformations(steps),
@@ -325,13 +328,13 @@ func (g *Gateway) put(w http.ResponseWriter, r *http.Request) {
 // stepKeys are the keys the gateway knows per step type, and formatKeys those of a payload format.
 var (
 	stepKeys = map[string][]string{
-		"dropFields":   {"type", "fields"},
-		"renameField":  {"type", "from", "to"},
-		"defaultField": {"type", "field", "value"},
-		"cel":          {"type", "expression"},
-		"convert":      {"type", "format"},
-		"dropHeaders":  {"type", "headers"},
-		"setHeader":    {"type", "header", "value"},
+		"dropFields":   {"type", "fields", "errorHeader"},
+		"renameField":  {"type", "from", "to", "errorHeader"},
+		"defaultField": {"type", "field", "value", "errorHeader"},
+		"cel":          {"type", "expression", "errorHeader"},
+		"convert":      {"type", "format", "errorHeader"},
+		"dropHeaders":  {"type", "headers", "errorHeader"},
+		"setHeader":    {"type", "header", "value", "errorHeader"},
 	}
 	formatKeys = []string{"type", "onDecodeError", "subject", "version", "root"}
 )
@@ -417,8 +420,9 @@ func normalizedFormat(format *kawa.PayloadFormat) *kawa.PayloadFormat {
 	return &normalized
 }
 
-// normalizedTransformations is steps as the gateway stores them: convert formats normalized, and
-// defaultField values re-encoded, so they come back as equal JSON but not the same bytes.
+// normalizedTransformations is steps as the gateway stores them: convert formats normalized,
+// defaultField values re-encoded, so they come back as equal JSON but not the same bytes, and a
+// true errorHeader left out, as the default.
 func normalizedTransformations(steps []kawa.Transformation) []kawa.Transformation {
 	if len(steps) == 0 {
 		return nil
@@ -426,6 +430,7 @@ func normalizedTransformations(steps []kawa.Transformation) []kawa.Transformatio
 	normalized := make([]kawa.Transformation, 0, len(steps))
 	for _, step := range steps {
 		step.Format = normalizedFormat(step.Format)
+		step.ErrorHeader = kawa.ErrorHeaderOff(step.ErrorHeader)
 		if len(step.Value) > 0 {
 			var value any
 			if err := json.Unmarshal(step.Value, &value); err == nil {

@@ -105,6 +105,12 @@ type VirtualTopicFilter struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Expression string `json:"expression,omitempty"`
+
+	// errorHeader is whether a record the filter cannot decode, delivered anyway because the value
+	// format's onDecodeError is include, carries the kawa-error headers that say why. Defaults to
+	// true.
+	// +optional
+	ErrorHeader *bool `json:"errorHeader,omitempty"`
 }
 
 // TransformationType is the kind of value transformation step.
@@ -188,6 +194,13 @@ type Transformation struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Header string `json:"header,omitempty"`
+
+	// errorHeader is whether a record this step fails on, delivered untransformed because the value
+	// format's onDecodeError is include, carries the kawa-error headers that say why. A value that
+	// does not decode fails the first value step, one that does not encode the convert step (the
+	// last value step without one). Header steps never fail. Defaults to true.
+	// +optional
+	ErrorHeader *bool `json:"errorHeader,omitempty"`
 }
 
 // PayloadFormatType is the encoding of record values.
