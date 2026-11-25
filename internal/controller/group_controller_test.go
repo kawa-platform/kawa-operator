@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kawav1alpha1 "github.com/kawa-platform/kawa-operator/api/v1alpha1"
@@ -31,7 +32,7 @@ var _ = Describe("Group controller", func() {
 
 	It("creates the group on the gateway and reports it synced", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 
 		// when
@@ -48,7 +49,7 @@ var _ = Describe("Group controller", func() {
 
 	It("updates the group when the spec changes", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -66,7 +67,7 @@ var _ = Describe("Group controller", func() {
 
 	It("undoes changes made to the group outside the operator", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -81,7 +82,7 @@ var _ = Describe("Group controller", func() {
 
 	It("does not rewrite a group that is already in sync", func() {
 		// given: no clients, which the gateway lists as an empty list
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		group.Spec.Clients = nil
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
@@ -96,7 +97,7 @@ var _ = Describe("Group controller", func() {
 
 	It("writes an unmarked group once so that the gateway marks it, and then leaves it alone", func() {
 		// given: a synced group the gateway lists unmarked, as one written before it marked resources
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -113,7 +114,7 @@ var _ = Describe("Group controller", func() {
 
 	It("lets nobody but the operator change the group it manages, also through a client", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -131,7 +132,7 @@ var _ = Describe("Group controller", func() {
 
 	It("refuses a group that already exists on the gateway, and adopts it when annotated", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		made := kawa.Group{Clients: []string{"studio"}, Roles: []string{"admin"}}
 		gateway.SetGroup("producers", made)
 		group := producers(ns)
@@ -151,7 +152,7 @@ var _ = Describe("Group controller", func() {
 
 	It("lets only the oldest Group of any namespace manage a name", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		first := producers(ns)
 		Expect(k8sClient.Create(ctx, first)).To(Succeed())
 		Eventually(readyReason(first), eventually, poll).Should(Equal(ReasonSynced))
@@ -171,7 +172,7 @@ var _ = Describe("Group controller", func() {
 
 	It("reports a group the gateway rejects as an invalid spec", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		gateway.RejectGroup("producers", http.StatusBadRequest, "invalid group body: unknown field")
 
 		// when
@@ -183,9 +184,27 @@ var _ = Describe("Group controller", func() {
 		Expect(readyMessage(group)).To(ContainSubstring("unknown field"))
 	})
 
+	It("syncs a group once the role it references is on the gateway", func() {
+		// given: the gateway does not have the role orders-producer yet, so it refuses the group
+		gateway := newGateway()
+		DeferCleanup(removeAll, &kawav1alpha1.RoleList{})
+		group := producers(ns)
+		Expect(k8sClient.Create(ctx, group)).To(Succeed())
+		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonInvalidSpec))
+		Expect(readyMessage(group)).To(ContainSubstring("unknown role 'orders-producer'"))
+
+		// when
+		Expect(k8sClient.Create(ctx, ordersProducer(ns))).To(Succeed())
+
+		// then
+		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced),
+			"the Group stayed refused after its role orders-producer was created")
+		Expect(producersGroup(gateway)()).To(Equal(kawa.Group{Clients: []string{"alice", "bob"}, Roles: []string{"orders-producer"}}))
+	})
+
 	It("takes the clients out of the group and deletes it from the gateway with the Group", func() {
 		// given: the gateway refuses to delete a group that still has clients
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -201,7 +220,7 @@ var _ = Describe("Group controller", func() {
 
 	It("keeps the group on the gateway with deletionPolicy Retain", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		group.Spec.DeletionPolicy = kawav1alpha1.DeletionPolicyRetain
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
@@ -221,7 +240,7 @@ var _ = Describe("Group controller", func() {
 
 	It("releases a Group whose group was already removed from the gateway, without recreating it", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		group := producers(ns)
 		Expect(k8sClient.Create(ctx, group)).To(Succeed())
 		Eventually(readyReason(group), eventually, poll).Should(Equal(ReasonSynced))
@@ -238,7 +257,7 @@ var _ = Describe("Group controller", func() {
 
 	It("acts as the operator on the gateway", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 
 		// when
 		group := producers(ns)
@@ -251,7 +270,7 @@ var _ = Describe("Group controller", func() {
 
 	It("does not serve a namespace outside the namespace selector, until it matches", func() {
 		// given
-		gateway := newGateway()
+		gateway := gatewayWithRoles()
 		namespace := &corev1.Namespace{}
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: ns}, namespace)).To(Succeed())
 		namespace.Labels[excludedLabel] = "true"
@@ -290,6 +309,28 @@ func producers(ns string) *kawav1alpha1.Group {
 		Spec: kawav1alpha1.GroupSpec{
 			Clients: []string{"alice", "bob"},
 			Roles:   []string{"orders-producer"},
+		},
+	}
+}
+
+// gatewayWithRoles is a fresh gateway that already has the roles the specs' Groups reference, since
+// the gateway refuses a group with a role it does not have.
+func gatewayWithRoles() *kawatest.Gateway {
+	gateway := newGateway()
+	for _, role := range []string{"orders-producer", "orders-reader"} {
+		gateway.SetRole(role, kawa.Role{})
+	}
+	return gateway
+}
+
+// ordersProducer is a Role orders-producer in ns that may write to the topic orders.
+func ordersProducer(ns string) *kawav1alpha1.Role {
+	return &kawav1alpha1.Role{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "orders-producer"},
+		Spec: kawav1alpha1.RoleSpec{
+			ACLs: []kawav1alpha1.ACL{
+				{Resource: kawav1alpha1.Resource{Type: "TOPIC", Pattern: ptr.To("orders")}, Operation: "WRITE", Permission: "ALLOW"},
+			},
 		},
 	}
 }
