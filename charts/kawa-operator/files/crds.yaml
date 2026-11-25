@@ -739,14 +739,15 @@ spec:
                           type: string
                         root:
                           description: |-
-                            root is the root element name of xml values. Required when this format is the output of
-                            transformations; when set, decoding refuses another root.
+                            root is the root element name of xml values. Required when transformed values are encoded in
+                            this format, as for subject; when set, decoding refuses another root.
                           minLength: 1
                           type: string
                         subject:
                           description: |-
                             subject is the schema registry subject of the schema avro values are encoded with. Required
-                            when this format is the output of transformations (the convert format, else valueFormat).
+                            when transformed values are encoded in this format: it is the convert format, or valueFormat
+                            with a value transformation and no convert. Header-only transformations encode nothing.
                           minLength: 1
                           type: string
                         type:
@@ -860,14 +861,15 @@ spec:
                     type: string
                   root:
                     description: |-
-                      root is the root element name of xml values. Required when this format is the output of
-                      transformations; when set, decoding refuses another root.
+                      root is the root element name of xml values. Required when transformed values are encoded in
+                      this format, as for subject; when set, decoding refuses another root.
                     minLength: 1
                     type: string
                   subject:
                     description: |-
                       subject is the schema registry subject of the schema avro values are encoded with. Required
-                      when this format is the output of transformations (the convert format, else valueFormat).
+                      when transformed values are encoded in this format: it is the convert format, or valueFormat
+                      with a value transformation and no convert. Header-only transformations encode nothing.
                     minLength: 1
                     type: string
                   type:

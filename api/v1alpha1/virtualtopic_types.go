@@ -216,7 +216,8 @@ type PayloadFormat struct {
 	OnDecodeError DecodeErrorPolicy `json:"onDecodeError,omitempty"`
 
 	// subject is the schema registry subject of the schema avro values are encoded with. Required
-	// when this format is the output of transformations (the convert format, else valueFormat).
+	// when transformed values are encoded in this format: it is the convert format, or valueFormat
+	// with a value transformation and no convert. Header-only transformations encode nothing.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Subject string `json:"subject,omitempty"`
@@ -226,8 +227,8 @@ type PayloadFormat struct {
 	// +kubebuilder:validation:Minimum=1
 	Version int32 `json:"version,omitempty"`
 
-	// root is the root element name of xml values. Required when this format is the output of
-	// transformations; when set, decoding refuses another root.
+	// root is the root element name of xml values. Required when transformed values are encoded in
+	// this format, as for subject; when set, decoding refuses another root.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Root string `json:"root,omitempty"`
