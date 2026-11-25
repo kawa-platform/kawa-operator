@@ -677,6 +677,15 @@ func (g *Gateway) putGroup(w http.ResponseWriter, r *http.Request) {
 	if !g.recordWrite(w, r, key) {
 		return
 	}
+	// like the gateway, which refuses to write a config it could not apply
+	for _, role := range group.Roles {
+		if _, ok := g.roles[role]; !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "group '" + name + "' references unknown role '" + role + "'",
+			})
+			return
+		}
+	}
 	g.groups[name] = group
 	g.stamp(r, key)
 	writeJSON(w, http.StatusOK, group)

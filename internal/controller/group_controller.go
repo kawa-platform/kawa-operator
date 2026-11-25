@@ -8,6 +8,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kawav1alpha1 "github.com/kawa-platform/kawa-operator/api/v1alpha1"
 	"github.com/kawa-platform/kawa-operator/internal/kawa"
@@ -37,6 +40,7 @@ type GroupReconciler struct {
 // +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kawa-platform.github.io,resources=groups/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kawa-platform.github.io,resources=roles,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -79,11 +83,42 @@ func (r *GroupReconciler) managed() *managed[*kawav1alpha1.Group, kawa.Group, ka
 	}
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. It also follows Roles: the gateway
+// refuses a group with a role it does not have yet, so a Group is reconciled again whenever a Role
+// it references changes, e.g. once the Role is synced.
 func (r *GroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kawav1alpha1.Group{}, groupRoleIndex,
+		func(obj client.Object) []string {
+			return obj.(*kawav1alpha1.Group).Spec.Roles
+		}); err != nil {
+		return err
+	}
 	b, err := r.managed().controller(mgr)
 	if err != nil {
 		return err
 	}
-	return b.Complete(r)
+	return b.
+		Watches(&kawav1alpha1.Role{}, handler.EnqueueRequestsFromMapFunc(r.referencing)).
+		Complete(r)
+}
+
+// groupRoleIndex indexes Groups by the gateway roles they reference.
+const groupRoleIndex = "spec.roles"
+
+// referencing maps a Role to requests for the Groups, in any namespace, that reference its gateway role.
+func (r *GroupReconciler) referencing(ctx context.Context, obj client.Object) []reconcile.Request {
+	role, ok := obj.(*kawav1alpha1.Role)
+	if !ok {
+		return nil
+	}
+	var groups kawav1alpha1.GroupList
+	if err := r.List(ctx, &groups, client.MatchingFields{groupRoleIndex: role.GatewayName()}); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list Groups referencing a role", "role", role.GatewayName())
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(groups.Items))
+	for i := range groups.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&groups.Items[i])})
+	}
+	return requests
 }
